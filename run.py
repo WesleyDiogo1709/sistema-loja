@@ -10,7 +10,28 @@ HOST = os.environ.get("LOJA_HOST", "127.0.0.1")   # use 0.0.0.0 para permitir ou
 PORT = int(os.environ.get("LOJA_PORT", "5000"))
 
 
+def porta_livre(host, inicio):
+    """Devolve a primeira porta que pode ser usada (a pedida ou as seguintes).
+    No Windows a porta pode estar ocupada ou reservada (erro 10013)."""
+    import socket
+    for p in list(range(inicio, inicio + 20)) + [8080, 8000, 8765, 5555]:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.bind((host, p))
+            return p
+        except OSError:
+            continue
+        finally:
+            s.close()
+    raise SystemExit("Nenhuma porta livre encontrada. Defina LOJA_PORT com outro numero (ex.: 8765).")
+
+
 def main():
+    global PORT
+    escolhida = porta_livre(HOST, PORT)
+    if escolhida != PORT:
+        print(f" Aviso: a porta {PORT} esta ocupada ou bloqueada pelo Windows. Usando a porta {escolhida}.")
+        PORT = escolhida
     app = create_app()
     url = f"http://127.0.0.1:{PORT}"
     print("=" * 60)
