@@ -1,0 +1,17 @@
+body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 0; padding: 8px; font-size: 13px; }
+.bar { background: #eef; padding: 8px; margin-bottom: 10px; font-size: 13px; }
+.bar button { padding: 6px 14px; font-size: 14px; }
+.center { text-align: center; } .small { font-size: 11px; } .pre { white-space: pre-line; }
+h1 { font-size: 16px; margin: 4px 0; } h2 { font-size: 15px; } h3 { font-size: 13px; margin: 10px 0 2px; }
+hr { border: 0; border-top: 1px dashed #000; margin: 6px 0; }
+table { width: 100%; border-collapse: collapse; } td, th { padding: 1px 2px; vertical-align: top; }
+.l { text-align: left; } .r { text-align: right; } td:nth-child(2), th:nth-child(2) { text-align: center; }
+.big td { font-weight: bold; font-size: 15px; }
+.receipt.w80 { width: 76mm; font-family: "Courier New", monospace; font-size: 12px; }
+.receipt.w58 { width: 54mm; font-family: "Courier New", monospace; font-size: 11px; }
+.receipt.wa4 { width: 180mm; }
+.doc .grid th { text-align: left; background: #eee; width: 16%; border: 1px solid #999; padding: 4px; }
+.doc .grid td { border: 1px solid #999; padding: 4px; }
+.doc .items th { background: #eee; border: 1px solid #999; padding: 4px; } .doc .items td { border: 1px solid #ccc; padding: 4px; }
+.sign td { padding-top: 40px; text-align: center; }
+@media print { .noprint { display: none !important; } body { padding: 0; } }

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Comprovante da venda #{{ sale.id }}</title>
+<link rel="stylesheet" href="/static/print.css">
+<style>@page { size: {{ '58mm auto' if width == '58' else ('80mm auto' if width == '80' else 'A4') }}; margin: {{ '2mm' if width in ('58','80') else '15mm' }}; }</style>
+</head>
+<body class="receipt w{{ width }}">
+<div class="noprint bar"><button id="btn-print">Imprimir</button> <button id="btn-close">Fechar</button>
+ <span>Formato:
+  <a href="?w=80">Térmica 80 mm</a> · <a href="?w=58">Térmica 58 mm</a> · <a href="?w=a4">A4 / impressora comum</a></span></div>
+<div class="center">
+  <h1>{{ settings.store_name }}</h1>
+  {% if settings.store_info %}<div class="small pre">{{ settings.store_info }}</div>{% endif %}
+  <div class="small">COMPROVANTE DE VENDA — SEM VALOR FISCAL</div>
+</div>
+<hr>
+<div class="small">
+  Venda nº <b>{{ sale.id }}</b> &nbsp; {{ sale.created_at|dt }}<br>
+  Vendedor: {{ sale.seller }}<br>
+  {% if sale.customer_name %}Cliente: {{ sale.customer_name }}{% if sale.customer_phone %} ({{ sale.customer_phone }}){% endif %}<br>{% endif %}
+  {% if sale.status == 'cancelada' %}<b>*** VENDA CANCELADA em {{ sale.cancelled_at|dt }} ***</b><br>{% endif %}
+</div>
+<hr>
+<table class="items">
+  <thead><tr><th class="l">Item</th><th>Qtd</th><th class="r">Unit.</th><th class="r">Total</th></tr></thead>
+  <tbody>
+  {% for i in sale['items'] %}
+    <tr><td class="l">{{ i.product_name }}</td><td>{{ i.qty }}</td><td class="r">{{ i.unit_price_cents|brl }}</td><td class="r">{{ (i.qty * i.unit_price_cents)|brl }}</td></tr>
+    {% if i.discount_cents %}<tr class="small"><td class="l" colspan="3">&nbsp;&nbsp;desconto</td><td class="r">-{{ i.discount_cents|brl }}</td></tr>{% endif %}
+    {% if i.warranty_ends %}<tr class="small"><td class="l" colspan="4">&nbsp;&nbsp;garantia até {{ i.warranty_ends|dt }}</td></tr>{% endif %}
+  {% endfor %}
+  </tbody>
+</table>
+<hr>
+<table class="tot">
+  <tr><td>Subtotal</td><td class="r">{{ sale.subtotal_cents|brl }}</td></tr>
+  {% if sale.discount_cents %}<tr><td>Descontos</td><td class="r">-{{ sale.discount_cents|brl }}</td></tr>{% endif %}
+  <tr class="big"><td>TOTAL</td><td class="r">{{ sale.total_cents|brl }}</td></tr>
+</table>
+<hr>
+<div class="small"><b>Pagamento</b></div>
+<table class="tot">
+  {% for p in sale.payments %}
+    <tr><td>{{ methods.get(p.method, p.method) }}{% if p.installments > 1 %} em {{ p.installments }}x{% endif %}</td><td class="r">{{ p.amount_cents|brl }}</td></tr>
+    {% if p.change_cents %}<tr class="small"><td>&nbsp;&nbsp;recebido {{ p.received_cents|brl }} · troco</td><td class="r">{{ p.change_cents|brl }}</td></tr>{% endif %}
+  {% endfor %}
+</table>
+<hr>
+<div class="center small pre">{{ settings.receipt_footer }}
+Troca/garantia: apresente este comprovante. A garantia legal de 90 dias para bens duráveis (CDC art. 26) está assegurada; prazos maiores constam em cada item.</div>
+<script src="/static/print.js"></script>
+</body></html>

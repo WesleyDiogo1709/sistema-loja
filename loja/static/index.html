@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistema da Loja</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div id="login" class="login hidden">
+  <form id="login-form" class="login-card" autocomplete="off">
+    <h1 id="login-title">Sistema da Loja</h1>
+    <p class="muted">Entre com seu usuário e senha.</p>
+    <label>Usuário<input id="login-user" name="username" required autofocus></label>
+    <label>Senha<input id="login-pass" name="password" type="password" required></label>
+    <div id="login-error" class="error hidden"></div>
+    <button class="btn primary big" type="submit">Entrar</button>
+  </form>
+</div>
+<div id="app" class="app hidden">
+  <aside class="sidebar">
+    <div class="brand" id="brand">Loja</div>
+    <nav id="nav"></nav>
+    <div class="sidebar-foot">
+      <div id="who" class="who"></div>
+      <button class="btn ghost small" id="btn-pass">Trocar senha</button>
+      <button class="btn ghost small" id="btn-logout">Sair</button>
+    </div>
+  </aside>
+  <main>
+    <header class="topbar">
+      <h2 id="page-title"></h2>
+      <div class="top-actions">
+        <span id="cash-badge" class="badge"></span>
+        <span class="hint">Atalhos: F2 PDV · F3 buscar · F4 caixa</span>
+      </div>
+    </header>
+    <section id="page" class="page"></section>
+  </main>
+</div>
+<div id="modal-root"></div>
+<div id="toasts" class="toasts"></div>
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+dados/
+dados_demo/
+*.db
+*.db-wal
+*.db-shm
+secret.key
+backups/
+.venv/
+__pycache__/
+*.pyc
+dist/
+build/
+*.spec
