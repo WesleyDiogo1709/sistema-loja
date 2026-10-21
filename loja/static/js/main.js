@@ -1,4 +1,4 @@
-import { api, setUnauthenticatedHandler } from './api.js';
+import { api, setUnauthenticatedHandler, setOnline } from './api.js';
 import { h, clear, toast, errorToast, modal, field, askText } from './ui.js';
 import { state, can, canAny } from './state.js';
 
@@ -65,7 +65,7 @@ export function updateCashBadge() {
 export async function refreshMe() { const me = await api.get('/api/me'); state.cashOpen = me.cash_open; state.methods = me.payment_methods; state.settings = me.settings; updateCashBadge(); }
 
 async function route() {
-  if (!state.me) return;
+  if (!state.me || state.me.must_change_password) return; // enquanto a senha provisória não é trocada, nenhuma tela carrega
   const name = (location.hash.replace(/^#\//, '').split('?')[0]) || 'inicio';
   let r = ROUTES.find((x) => x[0] === name && allowed(x)) || ROUTES[0];
   if (cleanup) { try { cleanup(); } catch (e) { /* ignora */ } cleanup = null; }
@@ -88,7 +88,7 @@ async function forcePasswordChange() {
   while (state.me && state.me.must_change_password) {
     const cur = h('input', { type: 'password' }), nw = h('input', { type: 'password' }), nw2 = h('input', { type: 'password' });
     const ok = await modal({ title: 'Defina uma nova senha', noCancel: true,
-      content: [h('p', { style: { margin: 0 } }, 'Por segurança, troque a senha provisória antes de continuar. Use pelo menos 6 caracteres.'),
+      content: [h('p', { style: { margin: 0 } }, 'Por segurança, troque a senha provisória antes de continuar. Escolha uma senha longa e difícil de adivinhar (o sistema avisa o tamanho mínimo).'),
         field('Senha atual', cur), field('Nova senha', nw), field('Repita a nova senha', nw2)],
       buttons: [{ label: 'Salvar nova senha', kind: 'primary', onClick: async (close) => {
         if (nw.value !== nw2.value) { toast('As senhas digitadas não são iguais.', 'bad'); return; }
@@ -117,6 +117,28 @@ $('btn-pass').addEventListener('click', async () => {
     buttons: [{ label: 'Salvar', kind: 'primary', onClick: async (close) => { await api.post('/api/me/password', { current: cur.value, new: nw.value }); toast('Senha alterada.', 'good'); close(true); } }] });
 });
 window.addEventListener('hashchange', route);
+
+// Indicador de conexão: consulta /api/health a cada 15 s e reage às falhas das chamadas normais.
+function showConn(online) {
+  const b = $('conn-badge'); b.className = 'badge ' + (online ? 'good' : 'bad'); b.textContent = online ? 'Online' : 'Sem conexão';
+  $('conn-banner').classList.toggle('hidden', online);
+}
+window.addEventListener('loja:conexao', (e) => showConn(e.detail));
+window.addEventListener('offline', () => setOnline(false));
+async function pingServidor() {
+  try { const r = await fetch('/api/health', { cache: 'no-store' }); setOnline(r.ok); }
+  catch (e) { setOnline(false); }
+}
+setInterval(pingServidor, 15000);
+window.addEventListener('online', pingServidor);
+
+// Menu em gaveta (celular)
+function menu(open) { $('sidebar').classList.toggle('open', open); $('scrim').classList.toggle('hidden', !open); $('btn-menu').setAttribute('aria-expanded', String(open)); }
+$('btn-menu').addEventListener('click', () => menu(!$('sidebar').classList.contains('open')));
+$('scrim').addEventListener('click', () => menu(false));
+$('nav').addEventListener('click', (e) => { if (e.target.closest('a')) menu(false); });
+
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
 
 // Atalhos globais
 document.addEventListener('keydown', (e) => {

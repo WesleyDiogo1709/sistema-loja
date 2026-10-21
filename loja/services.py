@@ -1,6 +1,7 @@
 """Regras de negócio. Todas as funções recebem uma conexão SQLite; as que alteram dados
 devem ser chamadas dentro de `db.tx(conn)` (o chamador controla a transação)."""
 import json
+import os
 from datetime import datetime
 
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -97,9 +98,17 @@ def seed_defaults(conn):
     for k, v in DEFAULT_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?,?)", (k, v))
     # Usuário inicial: a senha deve ser trocada no primeiro acesso.
+    initial = os.environ.get("LOJA_ADMIN_PASSWORD", "")
+    if not initial:
+        if os.environ.get("LOJA_ENV", "").strip().lower() == "production":
+            raise SystemExit("Configuração de produção incompleta:\n - LOJA_ADMIN_PASSWORD: senha inicial do usuário admin (mínimo 10 caracteres). "
+                             "Ela só é usada na criação do banco e o sistema obriga a trocá-la no primeiro acesso.")
+        initial = "admin123"
+    elif len(initial) < 10 and os.environ.get("LOJA_ENV", "").strip().lower() == "production":
+        raise SystemExit("LOJA_ADMIN_PASSWORD precisa ter pelo menos 10 caracteres.")
     conn.execute(
         "INSERT INTO users(username, name, password_hash, role, must_change_password) VALUES (?,?,?,?,1)",
-        ("admin", "Administrador", generate_password_hash("admin123"), "administrador"),
+        ("admin", "Administrador", generate_password_hash(initial), "administrador"),
     )
 
 
@@ -731,8 +740,9 @@ def sale_detail(conn, sale_id):
 # ---------------------------------------------------------------- usuários
 
 def validate_password(password, username=""):
-    if not password or len(password) < 6:
-        raise ApiError("A senha deve ter pelo menos 6 caracteres.")
+    minimo = 10 if os.environ.get("LOJA_ENV", "").strip().lower() == "production" else 6  # online: senha mais longa
+    if not password or len(password) < minimo:
+        raise ApiError(f"A senha deve ter pelo menos {minimo} caracteres.")
     if password.lower() == (username or "").lower() or password.lower() in ("123456", "admin123", "senha123", "password"):
         raise ApiError("Escolha uma senha menos óbvia.")
 

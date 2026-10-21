@@ -2,9 +2,17 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Sistema da Loja</title>
-<link rel="icon" href="data:,">
+<meta name="theme-color" content="#14201c">
+<meta name="description" content="Gestão da loja: vendas, estoque, assistência técnica e financeiro.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Loja">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -18,8 +26,10 @@
     <button class="btn primary big" type="submit">Entrar</button>
   </form>
 </div>
+<div id="conn-banner" class="conn-banner hidden" role="alert">Sem conexão com o servidor. Vendas e alterações ficam bloqueadas até a conexão voltar. Nada é salvo neste aparelho.</div>
 <div id="app" class="app hidden">
-  <aside class="sidebar">
+  <div id="scrim" class="scrim hidden"></div>
+  <aside class="sidebar" id="sidebar">
     <div class="brand" id="brand">Loja</div>
     <nav id="nav"></nav>
     <div class="sidebar-foot">
@@ -30,8 +40,10 @@
   </aside>
   <main>
     <header class="topbar">
+      <button class="btn menu-btn" id="btn-menu" aria-label="Abrir menu" aria-expanded="false">☰</button>
       <h2 id="page-title"></h2>
       <div class="top-actions">
+        <span id="conn-badge" class="badge good" title="Estado da conexão com o servidor">Online</span>
         <span id="cash-badge" class="badge"></span>
         <span class="hint">Atalhos: F2 PDV · F3 buscar · F4 caixa</span>
       </div>

@@ -3,6 +3,11 @@ export class ApiError extends Error {
   constructor(message, status, data) { super(message); this.status = status; this.data = data || {}; this.code = (data || {}).code; }
 }
 
+// Estado da conexão: qualquer chamada que falha por rede marca "offline"; qualquer resposta do servidor marca "online".
+export const conexao = { online: true };
+function setOnline(v) { if (conexao.online !== v) { conexao.online = v; window.dispatchEvent(new CustomEvent('loja:conexao', { detail: v })); } }
+export { setOnline };
+
 let onUnauthenticated = () => {};
 export function setUnauthenticatedHandler(fn) { onUnauthenticated = fn; }
 
@@ -14,7 +19,8 @@ async function call(method, url, body, isForm) {
   }
   let res;
   try { res = await fetch(url, opts); }
-  catch (e) { throw new ApiError('Sem conexão com o servidor do sistema. Verifique se a janela do sistema continua aberta.', 0); }
+  catch (e) { setOnline(false); throw new ApiError('Sem conexão com o servidor. A operação NÃO foi confirmada: confira o histórico antes de repetir.', 0); }
+  setOnline(res.status < 502 || res.status > 504);
   const type = res.headers.get('content-type') || '';
   if (type.includes('application/json')) {
     const data = await res.json();

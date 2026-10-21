@@ -38,5 +38,18 @@ Configurações → Backup. Automático ao iniciar, a cada 6 h e ao fechar o cai
 ## Não incluído
 Integração com maquininha/PIX/gateway, nota fiscal (NFC-e/NF-e), envio de WhatsApp/e-mail. Pagamentos são registrados manualmente.
 
+## Acesso remoto (celular, outros computadores, online)
+O sistema pode ser publicado online para ser acessado de qualquer lugar pelo navegador (Chrome, Edge, Firefox, Safari, Android e iPhone), com instalação como aplicativo (PWA). Tudo usa **um único banco**. Ele **exige internet** e não funciona offline por segurança.
+
+- Como acessar, instalar o app e limites: `REMOTE_ACCESS.md`
+- Publicar (Render com disco persistente), domínio, atualizar, reverter, backup: `DEPLOYMENT.md`
+- Antes de liberar para a equipe: `PRODUCTION_CHECKLIST.md`
+- Variáveis de ambiente (somente nomes): `.env.example`
+- Diagnóstico: Configurações → **Diagnóstico**; monitor externo em `/api/health`.
+- Estado do projeto e pendências: `PLAN.md`; guia para quem for alterar o código: `CLAUDE.md`
+
+Teste local em modo produção: `LOJA_ENV=production LOJA_DATA_DIR=<pasta> LOJA_ADMIN_PASSWORD=<senha de 10+ caracteres> python run.py` (atrás de um proxy HTTPS).
+Erros comuns: *"Configuração de produção incompleta"* = faltou variável (a mensagem diz qual); *redirecionamento infinito/HTTPS* = o proxy não envia `X-Forwarded-Proto`; *dados sumiram após atualizar* = faltou o disco persistente em `/data`; *porta bloqueada (erro 10013, só Windows local)* = o sistema escolhe outra porta sozinho.
+
 ## Testes
-`python -m unittest discover -s tests -t .` (77 testes: venda, leitor, estoque, cancelamento, devolução, taxas, caixa, permissões, backup/restauração, venda duplicada, concorrência). Documentação técnica: `docs/ARQUITETURA.md`.
+`python -m unittest discover -s tests -t .` (95 testes: venda, leitor, estoque, cancelamento, devolução, taxas, caixa, permissões, backup/restauração, venda duplicada, concorrência, produção/HTTPS/cookies e uso por vários aparelhos). Documentação técnica: `docs/ARQUITETURA.md`.

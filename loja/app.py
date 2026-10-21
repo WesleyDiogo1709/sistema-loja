@@ -19,21 +19,55 @@ APP_VERSION = "1.0.0"
 LOGIN_WINDOW, LOGIN_MAX = 300, 5
 
 
+def is_production():
+    return os.environ.get("LOJA_ENV", "development").strip().lower() == "production"
+
+
+def check_production_env():
+    """Em produção, falha com mensagem clara se faltar algo obrigatório (nada de valores silenciosos)."""
+    problems = []
+    if not os.environ.get("LOJA_DATA_DIR"):
+        problems.append("LOJA_DATA_DIR: pasta do disco persistente (ex.: /data). Sem ela o banco ficaria num disco que é apagado a cada atualização.")
+    key = os.environ.get("LOJA_SECRET_KEY", "")
+    if key and len(key) < 32:
+        problems.append("LOJA_SECRET_KEY: se informada, precisa ter pelo menos 32 caracteres.")
+    if problems:
+        raise SystemExit("Configuração de produção incompleta:\n - " + "\n - ".join(problems) + "\nVeja o arquivo .env.example.")
+
+
 def create_app(testing=False):
+    production = is_production()
+    if production:
+        check_production_env()
     app = Flask(__name__, static_folder="static", template_folder="templates", static_url_path="/static")
     db.init_db()
-    key_file = db.data_dir() / "secret.key"
-    if not key_file.exists():
-        key_file.write_text(secrets.token_hex(32))
-        try:
-            os.chmod(key_file, 0o600)
-        except OSError:
-            pass
+    secret = os.environ.get("LOJA_SECRET_KEY", "").strip()
+    if not secret:
+        key_file = db.data_dir() / "secret.key"
+        if not key_file.exists():
+            key_file.write_text(secrets.token_hex(32))
+            try:
+                os.chmod(key_file, 0o600)
+            except OSError:
+                pass
+        secret = key_file.read_text().strip()
+    if production and os.environ.get("LOJA_TRUST_PROXY", "1") == "1":
+        # A hospedagem (Render, Railway, Fly...) entrega HTTPS e repassa o IP real nos cabeçalhos X-Forwarded-*.
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    # "Época" das sessões: persistida em disco para que reiniciar/atualizar o servidor não derrube todo mundo.
+    # É trocada (e todas as sessões caem) quando um backup é restaurado.
+    epoch_file = db.data_dir() / "session.epoch"
+    if not epoch_file.exists():
+        epoch_file.write_text(secrets.token_hex(8))
+    boot_id = epoch_file.read_text().strip() or secrets.token_hex(8)
+    public_url = os.environ.get("LOJA_PUBLIC_URL", "").strip().rstrip("/")
     app.config.update(
-        SECRET_KEY=key_file.read_text().strip(),
+        SECRET_KEY=secret, IS_PRODUCTION=production, PUBLIC_URL=public_url,
+        SESSION_COOKIE_SECURE=production,
         SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Strict", SESSION_COOKIE_NAME="loja_sessao",
         PERMANENT_SESSION_LIFETIME=timedelta(hours=12), MAX_CONTENT_LENGTH=200 * 1024 * 1024,
-        JSON_AS_ASCII=False, TESTING=testing, BOOT_ID=secrets.token_hex(8), JSON_SORT_KEYS=False,
+        JSON_AS_ASCII=False, TESTING=testing, BOOT_ID=boot_id, JSON_SORT_KEYS=False,
     )
     attempts = {}
     attempts_lock = threading.Lock()
@@ -54,8 +88,28 @@ def create_app(testing=False):
         if c is not None:
             c.close()
 
+    @app.before_request
+    def _https_e_origem():
+        if not production:
+            return None
+        if request.path != "/api/health" and not request.is_secure:
+            return redirect(request.url.replace("http://", "https://", 1), code=301)
+        if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+            origin = request.headers.get("Origin")
+            if origin:
+                from urllib.parse import urlparse
+                host = urlparse(origin).netloc
+                ok_hosts = {request.host}
+                if public_url:
+                    ok_hosts.add(urlparse(public_url).netloc)
+                if host not in ok_hosts:
+                    return jsonify({"error": "Origem da requisição não autorizada."}), 403
+        return None
+
     @app.after_request
     def _headers(resp):
+        if production:
+            resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["Referrer-Policy"] = "no-referrer"
@@ -160,11 +214,61 @@ def create_app(testing=False):
     # ------------------------------------------------------------ páginas
     @app.route("/")
     def index():
-        return send_from_directory(app.static_folder, "index.html")
+        r = send_from_directory(app.static_folder, "index.html")
+        r.headers["Cache-Control"] = "no-store"  # a página inicial nunca vem de cache antigo
+        return r
 
     @app.route("/api/health")
     def health():
-        return jsonify({"ok": True, "version": APP_VERSION})
+        """Público e mínimo: serve ao monitor de disponibilidade e ao indicador de conexão. Sem detalhes internos."""
+        try:
+            conn().execute("SELECT 1").fetchone()
+            ok = True
+        except Exception:
+            ok = False
+        return jsonify({"ok": ok, "version": APP_VERSION}), (200 if ok else 503)
+
+    @app.route("/manifest.webmanifest")
+    def manifest():
+        r = send_from_directory(app.static_folder, "manifest.webmanifest", mimetype="application/manifest+json")
+        r.headers["Cache-Control"] = "no-cache"
+        return r
+
+    @app.route("/sw.js")
+    def service_worker():
+        r = send_from_directory(app.static_folder, "sw.js", mimetype="text/javascript")
+        r.headers["Cache-Control"] = "no-cache"
+        r.headers["Service-Worker-Allowed"] = "/"
+        return r
+
+    @api("/api/diagnostico", perm="gerenciar_config")
+    def diagnostico():
+        c = conn()
+        db_ok, err = True, None
+        try:
+            c.execute("SELECT 1").fetchone()
+            integrity = c.execute("PRAGMA quick_check").fetchone()[0]
+        except Exception as e:  # noqa: BLE001
+            db_ok, integrity, err = False, None, type(e).__name__
+        last_sale = c.execute("SELECT MAX(created_at) FROM sales").fetchone()[0]
+        last_audit = c.execute("SELECT MAX(created_at) FROM audit_log").fetchone()[0]
+        backups = backup.list_backups()
+        try:
+            size = db.db_path().stat().st_size
+        except OSError:
+            size = None
+        failed_logins = c.execute(
+            "SELECT COUNT(*) FROM audit_log WHERE action='login_falhou' AND created_at >= datetime('now','localtime','-1 day')").fetchone()[0]
+        return jsonify({
+            "online": True, "database_ok": db_ok and integrity == "ok", "database_error": err,
+            "version": APP_VERSION, "environment": "produção" if production else "desenvolvimento",
+            "https": request.is_secure, "cookie_seguro": bool(app.config["SESSION_COOKIE_SECURE"]),
+            "user": g.user["username"], "server_time": sv.now(),
+            "last_activity": max([x for x in (last_sale, last_audit) if x] or [None]) if (last_sale or last_audit) else None,
+            "last_backup": backups[0]["created_at"] if backups else None, "backup_count": len(backups),
+            "db_size": size, "schema_version": db.SCHEMA_VERSION, "failed_logins_24h": failed_logins,
+            "public_url_configured": bool(public_url),
+        })
 
     # ------------------------------------------------------------ autenticação
     @api("/api/login", ["POST"], public=True, tx=False)
@@ -841,6 +945,7 @@ def create_app(testing=False):
             if tmp.exists():
                 tmp.unlink()
         app.config["BOOT_ID"] = secrets.token_hex(8)  # derruba todas as sessões
+        (db.data_dir() / "session.epoch").write_text(app.config["BOOT_ID"])
         session.clear()
         return jsonify({"ok": True, **result})
 

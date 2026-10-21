@@ -1,0 +1,20 @@
+# Blueprint do Render (https://render.com): "New > Blueprint" apontando para este repositório.
+# Disco persistente exige plano pago (starter). Valores: confira o preço atual no site do Render.
+services:
+  - type: web
+    name: sistema-loja
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: dados
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: LOJA_ENV
+        value: production
+      - key: LOJA_DATA_DIR
+        value: /data
+      - key: LOJA_ADMIN_PASSWORD
+        sync: false        # você digita no painel do Render; nunca vai para o Git

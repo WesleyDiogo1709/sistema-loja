@@ -10,10 +10,11 @@ export default async function ({ el }) {
   if (can('gerenciar_config')) items.push(['loja', 'Loja e leitor'], ['pagamentos', 'Pagamentos e taxas']);
   if (can('gerenciar_usuarios')) items.push(['usuarios', 'Usuários'], ['permissoes', 'Permissões']);
   if (can('gerenciar_backup')) items.push(['backup', 'Backup e restauração']);
+  if (can('gerenciar_config')) items.push(['diagnostico', 'Diagnóstico']);
   if (can('ver_auditoria')) items.push(['auditoria', 'Auditoria']);
   const box = h('div'); let cur = items[0][0];
   el.append(tabs(items, (k) => { cur = k; draw(); }, cur), box);
-  const draw = async () => { clear(box); try { await ({ loja, pagamentos, usuarios, permissoes, backup, auditoria })[cur](); } catch (e) { errorToast(e); } };
+  const draw = async () => { clear(box); try { await ({ loja, pagamentos, usuarios, permissoes, backup, auditoria, diagnostico })[cur](); } catch (e) { errorToast(e); } };
 
   async function loja() {
     const { settings: s } = await api.get('/api/settings');
@@ -27,6 +28,27 @@ export default async function ({ el }) {
         await api.put('/api/settings', { settings: { store_name: i.name.value, store_info: i.info.value, receipt_footer: i.foot.value, scanner_suffix: i.suffix.value, scanner_min_length: i.minlen.value, auto_print_receipt: i.auto.checked ? '1' : '0',
           default_warranty_days: i.warranty.value, inactive_days: i.inactive.value, os_term_days: i.osdays.value, backup_keep: i.keep.value, max_installments: i.inst.value } });
         await refreshMe(); toast('Configurações salvas.', 'good'); } }, 'Salvar'), h('a', { class: 'btn', href: '#/leitor' }, 'Testar leitor de código de barras'))));
+  }
+
+  async function diagnostico() {
+    const d = await api.get('/api/diagnostico');
+    const yn = (v, ok, bad) => badge(v ? ok : bad, v ? 'good' : 'bad');
+    const kb = (n) => (n == null ? '—' : n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB');
+    box.append(h('div', { class: 'card', style: { maxWidth: '720px' } }, h('h3', {}, 'Estado do sistema'),
+      h('dl', { class: 'kv' },
+        h('dt', {}, 'Aplicação'), h('dd', {}, yn(d.online, 'Online', 'Indisponível')),
+        h('dt', {}, 'Banco de dados'), h('dd', {}, yn(d.database_ok, 'Acessível e íntegro', 'Com problema')),
+        h('dt', {}, 'Conexão segura (HTTPS)'), h('dd', {}, yn(d.https, 'Ativa', 'Não está em HTTPS')),
+        h('dt', {}, 'Cookie de sessão seguro'), h('dd', {}, yn(d.cookie_seguro, 'Sim', 'Não (modo local)')),
+        h('dt', {}, 'Ambiente'), h('dd', {}, d.environment),
+        h('dt', {}, 'Versão publicada'), h('dd', {}, d.version + ' (esquema ' + d.schema_version + ')'),
+        h('dt', {}, 'Usuário conectado'), h('dd', {}, d.user),
+        h('dt', {}, 'Última atividade gravada'), h('dd', {}, d.last_activity ? fmtDateTime(d.last_activity) : '—'),
+        h('dt', {}, 'Hora do servidor'), h('dd', {}, fmtDateTime(d.server_time)),
+        h('dt', {}, 'Último backup'), h('dd', {}, (d.last_backup ? fmtDateTime(d.last_backup) : 'nenhum') + ' (' + d.backup_count + ' guardados)'),
+        h('dt', {}, 'Tamanho do banco'), h('dd', {}, kb(d.db_size)),
+        h('dt', {}, 'Tentativas de login falhas (24 h)'), h('dd', {}, String(d.failed_logins_24h)))),
+      h('p', { class: 'muted' }, 'Importante: baixe uma cópia do backup para o seu computador com frequência. O backup que fica só no servidor não protege contra problemas no próprio servidor.'));
   }
 
   async function pagamentos() {

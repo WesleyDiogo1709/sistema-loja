@@ -6,8 +6,10 @@ import webbrowser
 
 from loja.app import create_app
 
-HOST = os.environ.get("LOJA_HOST", "127.0.0.1")   # use 0.0.0.0 para permitir outros computadores da rede
-PORT = int(os.environ.get("LOJA_PORT", "5000"))
+PRODUCTION = os.environ.get("LOJA_ENV", "").strip().lower() == "production"
+# Em produção a hospedagem define a porta (variável PORT) e o servidor escuta em todas as interfaces.
+HOST = os.environ.get("LOJA_HOST", "0.0.0.0" if PRODUCTION else "127.0.0.1")
+PORT = int(os.environ.get("LOJA_PORT") or os.environ.get("PORT") or "5000")
 
 
 def porta_livre(host, inicio):
@@ -28,7 +30,7 @@ def porta_livre(host, inicio):
 
 def main():
     global PORT
-    escolhida = porta_livre(HOST, PORT)
+    escolhida = PORT if PRODUCTION else porta_livre(HOST, PORT)
     if escolhida != PORT:
         print(f" Aviso: a porta {PORT} esta ocupada ou bloqueada pelo Windows. Usando a porta {escolhida}.")
         PORT = escolhida
@@ -36,12 +38,12 @@ def main():
     url = f"http://127.0.0.1:{PORT}"
     print("=" * 60)
     print(" Sistema da Loja em execução")
-    print(f" Acesse: {url}")
-    if HOST != "127.0.0.1":
+    print(f" Acesse: {url}" if not PRODUCTION else f" Modo PRODUÇÃO na porta {PORT} (acesse pelo endereço HTTPS da hospedagem)")
+    if HOST != "127.0.0.1" and not PRODUCTION:
         print(f" Rede local liberada ({HOST}). Use o IP deste computador nos demais.")
     print(" Para encerrar, feche esta janela ou pressione Ctrl+C.")
     print("=" * 60)
-    if os.environ.get("LOJA_NO_BROWSER") != "1":
+    if os.environ.get("LOJA_NO_BROWSER") != "1" and not PRODUCTION:
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()
     try:
         from waitress import serve

@@ -1,0 +1,9 @@
+.git
+dados
+dados_demo
+.venv
+__pycache__
+*.db
+secret.key
+.env
+tests
