@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Teste da impressora térmica</title>
+<style>
+  @page { size: {{ paper_mm }}mm 297mm; margin: 0; }  /* reserva; print.js ajusta a altura ao cupom */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #fff; color: #000; }
+  body { font-family: Arial, "Liberation Sans", sans-serif; font-size: 12.5px; line-height: 1.28; }
+  .t { width: {{ width_mm }}mm; margin: 0 auto; padding: 2mm 0 6mm; overflow-wrap: anywhere; }
+  .bar { width: {{ width_mm }}mm; margin: 0 auto 6px; padding: 8px 0; display: flex; gap: 8px; flex-wrap: wrap; font: 13px Arial, sans-serif; }
+  .bar button { font: inherit; padding: 6px 12px; cursor: pointer; }
+  h1 { font-size: 15px; text-align: center; margin: 0 0 2mm; }
+  .rule { height: 6mm; border: 1px solid #000; display: flex; margin: 1mm 0; }
+  .rule i { flex: 1; border-right: 1px solid #000; } .rule i:last-child { border-right: 0; }
+  .edge { display: flex; justify-content: space-between; font-weight: 700; font-size: 11px; }
+  .box { border: 2px solid #000; height: 10mm; margin: 2mm 0; display: grid; place-items: center; font-weight: 700; }
+  hr { border: 0; border-top: 1px dashed #000; margin: 2mm 0; }
+  .big { font-size: 28px; font-weight: 700; text-align: center; line-height: 1; }
+  .small { font-size: 10.5px; }
+  @media screen { body { background: #e8e8e8; } .t { background: #fff; padding: 3mm 2mm; box-shadow: 0 0 6px rgba(0,0,0,.25); } }
+  @media print { .bar { display: none !important; } }
+</style></head>
+<body>
+<div class="bar"><button id="btn-print">Imprimir página de teste</button><button id="btn-close">Fechar</button></div>
+<div class="t ticket" data-paper="{{ paper_mm }}">
+  <h1>TESTE DA IMPRESSORA TÉRMICA</h1>
+  <div class="edge"><span>◄ esquerda</span><span>direita ►</span></div>
+  <div class="rule">{% for i in range(width_mm // 2) %}<i></i>{% endfor %}</div>
+  <div class="small">Régua: cada divisão = 2 mm. Largura configurada: <b>{{ width_mm }} mm</b> (papel de {{ paper_mm }} mm).</div>
+  <div class="box">A caixa precisa aparecer inteira</div>
+  <p class="small">As bordas esquerda e direita da caixa e da régua não podem ser cortadas. Se forem, reduza a largura em Configurações → Ordem de serviço e garantia → “Largura útil da bobina” e confira o tamanho do papel e as margens no driver.</p>
+  <hr>
+  <div class="big">Nº 12345</div>
+  <hr>
+  <p>Texto normal: João da Silva Sauro de Albuquerque Montenegro Filho — iPhone 14 Pro Max 256 GB Azul-Sierra.</p>
+  <p>Palavra longa: SEMESPAÇOSEMESPAÇOSEMESPAÇOSEMESPAÇOSEMESPAÇOSEMESPAÇO.</p>
+  <p>IMEI: 356920112345678</p>
+  <p class="small">Texto pequeno (termo de garantia): A garantia não exclui os direitos assegurados ao consumidor por lei.</p>
+  <hr>
+  <div style="display:flex;justify-content:space-between"><span>Mão de obra</span><span>R$ 1.234,56</span></div>
+  <div style="display:flex;justify-content:space-between;font-weight:700;font-size:17px"><span>TOTAL</span><span>R$ 1.234,56</span></div>
+  <hr>
+  <p class="small">Fim do teste. O papel deve ser cortado logo abaixo desta linha, sem sobrar folha em branco.</p>
+</div>
+<script src="/static/print.js"></script>
+</body></html>

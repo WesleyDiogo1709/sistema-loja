@@ -26,7 +26,8 @@ Pasta `dados\` (arquivo `loja.db` e subpasta `backups\`). Para mudar: variável 
 Configurações → Backup. Automático ao iniciar, a cada 6 h e ao fechar o caixa. Para segurança real, copie a pasta `dados\backups` para um pendrive ou nuvem com frequência. Restaurar cria antes uma cópia de segurança do estado atual.
 
 ## Impressão
-- Comprovante e OS: abrem uma página formatada; use a impressão do navegador (A4 ou bobina 80 mm/58 mm — largura em Configurações → Loja e leitor).
+- Comprovante: página formatada; use a impressão do navegador.
+- **Ordem de serviço**: via do cliente em bobina térmica 80 mm (Epson TM-T20) ou A4, com termo de garantia. Ajustes do driver, peças avulsas, custos e termo: veja `docs/ORDEM_DE_SERVICO.md`. A validação na impressora física ainda precisa ser feita no seu equipamento.
 - PDF: na janela de impressão, escolha "Salvar como PDF".
 - Impressão direta ESC/POS **não** está implementada.
 

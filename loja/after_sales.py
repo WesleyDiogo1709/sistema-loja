@@ -133,7 +133,7 @@ def warranty_lookup(conn, q):
     for o in conn.execute(
             "SELECT * FROM service_orders WHERE status='entregue' AND (id=? OR imei=? OR serial=? OR customer_phone LIKE ? OR norm(customer_name) LIKE norm(?))"
             " ORDER BY id DESC LIMIT 100", (int(digits) if digits.isdigit() else -1, q, q, like, like)):
-        ends = add_days(o["delivered_at"], o["warranty_days"])
+        ends = (o["warranty_end"] or "")[:10] or add_days(o["delivered_at"], o["warranty_days"])
         out.append({"type": "servico", "order_id": o["id"], "description": f"Serviço em {o['brand']} {o['model']}: {o['defect']}",
                     "customer_name": o["customer_name"], "customer_phone": o["customer_phone"], "start": o["delivered_at"][:10],
                     "ends": ends, "in_warranty": ends >= today, "ref": f"OS {o['id']}"})
@@ -167,7 +167,7 @@ def create_claim(conn, user, perms, data):
         o = so.order_row(conn, order_id)
         desc = desc or f"Serviço OS {order_id}: {o['brand']} {o['model']}"
         cname, cphone = cname or o["customer_name"], cphone or o["customer_phone"]
-        in_warranty = 1 if o["delivered_at"] and add_days(o["delivered_at"], o["warranty_days"]) >= today else 0
+        in_warranty = 1 if o["delivered_at"] and ((o["warranty_end"] or "")[:10] or add_days(o["delivered_at"], o["warranty_days"])) >= today else 0
     if not desc:
         raise ApiError("Informe o item ou serviço da reclamação.")
     cur = conn.execute(

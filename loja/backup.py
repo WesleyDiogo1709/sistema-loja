@@ -81,7 +81,7 @@ def validate(path):
         if not REQUIRED_TABLES <= tables:
             raise ApiError("Este arquivo não é um backup do Sistema da Loja.")
         version = c.execute("PRAGMA user_version").fetchone()[0]
-        if version > db.SCHEMA_VERSION + len(db.MIGRATIONS):
+        if version > db.SCHEMA_VERSION:
             raise ApiError("Este backup foi criado por uma versão mais nova do sistema. Atualize o sistema antes de restaurar.")
         info = {
             "users": c.execute("SELECT COUNT(*) FROM users").fetchone()[0],

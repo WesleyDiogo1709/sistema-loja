@@ -1,11 +1,12 @@
 """Assistência técnica: ordens de serviço, peças (com baixa de estoque), pagamentos parciais e garantia."""
+import json
 import re
 from datetime import datetime
 
 from .barcode import normalize
 from .db import unaccent_lower
 from .services import (ApiError, add_days, audit, authorize, build_payments, clean, move_stock, now, open_cash,
-                       payment_methods, permissions_of, product_row, to_int, warranty_days, money)
+                       payment_methods, permissions_of, product_row, to_int, warranty_days, money, get_settings)
 
 STATUS = {
     "recebido": "Recebido", "em_diagnostico": "Em diagnóstico", "aguardando_aprovacao": "Aguardando aprovação",
@@ -13,6 +14,14 @@ STATUS = {
     "pronto_retirada": "Pronto para retirada", "entregue": "Entregue", "cancelado": "Cancelado",
 }
 FINAL = ("entregue", "cancelado")
+PART_STATUS = {
+    "aguardando_compra": "Aguardando compra", "encomendada": "Encomendada", "recebida": "Recebida",
+    "instalada": "Instalada", "cancelada": "Cancelada",
+}
+BOUGHT = ("encomendada", "recebida", "instalada")      # a loja já gastou com a peça
+PART_KIND = {"estoque": "Peça do estoque", "avulsa": "Peça avulsa (sob encomenda)"}
+# Peças que valem para o cliente (cobradas) e para o custo. Cancelada some da cobrança; o custo só fica se já tinha sido comprada.
+ACTIVE_PART = "removed_at IS NULL AND (part_status IS NULL OR part_status<>'cancelada')"
 NEEDS_APPROVAL = ("em_reparo", "em_testes", "pronto_retirada", "entregue")
 
 
@@ -24,14 +33,48 @@ def order_row(conn, oid):
 
 
 def totals(conn, o):
+    """Valores da OS. Cobrado ao cliente e custo interno ficam separados; custo ausente NÃO vira zero silenciosamente."""
     parts = conn.execute(
-        "SELECT COALESCE(SUM(unit_price_cents*qty),0) price, COALESCE(SUM(unit_cost_cents*qty),0) cost"
-        " FROM service_order_parts WHERE order_id=? AND removed_at IS NULL", (o["id"],)).fetchone()
+        f"SELECT COALESCE(SUM(unit_price_cents*qty),0) price FROM service_order_parts WHERE order_id=? AND {ACTIVE_PART}",
+        (o["id"],)).fetchone()
+    # Custo: peças válidas + peças canceladas depois de compradas (prejuízo da loja).
+    cost_rows = conn.execute(
+        "SELECT unit_cost_cents, qty FROM service_order_parts WHERE order_id=? AND removed_at IS NULL"
+        " AND (part_status IS NULL OR part_status<>'cancelada' OR cancel_after_purchase=1)", (o["id"],)).fetchall()
+    parts_cost = sum(r["unit_cost_cents"] * r["qty"] for r in cost_rows if r["unit_cost_cents"] is not None)
+    missing = sum(1 for r in cost_rows if r["unit_cost_cents"] is None)
     paid = conn.execute(
         "SELECT COALESCE(SUM(amount_cents),0) FROM service_payments WHERE order_id=? AND voided_at IS NULL", (o["id"],)).fetchone()[0]
+    other = o["other_cost_cents"] or 0
     total = parts["price"] + o["labor_cents"] - o["discount_cents"]
-    return {"parts_cents": parts["price"], "parts_cost_cents": parts["cost"], "total_cents": total,
+    cost = parts_cost + other
+    return {"parts_cents": parts["price"], "parts_cost_cents": parts_cost, "parts_cost_missing": missing,
+            "other_cost_cents": other, "cost_cents": cost, "cost_incomplete": missing > 0,
+            "total_cents": total, "profit_partial_cents": total - cost,
+            "profit_cents": None if missing else total - cost,        # None = lucro incompleto
             "paid_cents": paid, "balance_cents": total - paid}
+
+
+def warranty_types(conn):
+    try:
+        types = json.loads(get_settings(conn).get("os_warranty_types") or "[]")
+    except ValueError:
+        types = []
+    return [t for t in types if isinstance(t, dict) and t.get("key") and t.get("label")]
+
+
+def _warranty_for(conn, data, current_type=None):
+    """(tipo, dias) da garantia: dias informados > padrão do tipo > padrão da loja."""
+    wtype = clean(data.get("warranty_type")) if "warranty_type" in data else current_type
+    types = {t["key"]: t for t in warranty_types(conn)}
+    if wtype and wtype not in types:
+        raise ApiError("Tipo de garantia inválido.")
+    explicit = data.get("warranty_days")
+    if explicit not in (None, ""):
+        return wtype, warranty_days(explicit)
+    if wtype:
+        return wtype, warranty_days(types[wtype].get("days"))
+    return wtype, warranty_days(None, default=int(get_settings(conn).get("default_warranty_days") or 90))
 
 
 def log_event(conn, oid, status, user_id, note=None):
@@ -82,14 +125,15 @@ def create_order(conn, user, perms, data):
     if tech and not conn.execute("SELECT 1 FROM users WHERE id=? AND active=1", (tech,)).fetchone():
         raise ApiError("Técnico não encontrado.")
     labor = to_int(data.get("labor_cents", 0), "Mão de obra")
+    wtype, wdays = _warranty_for(conn, data)
     cur = conn.execute(
         "INSERT INTO service_orders(customer_id, customer_name, customer_phone, brand, model, imei, serial, defect,"
-        " physical_state, accessories, labor_cents, deadline, technician_id, entry_at, warranty_days, notes, created_by, client_token)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " physical_state, accessories, labor_cents, deadline, technician_id, entry_at, warranty_days, warranty_type, notes, created_by, client_token)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (cid, name, phone, brand, model, normalize(data.get("imei")) or None, normalize(data.get("serial")) or None,
          defect, clean(data.get("physical_state")), clean(data.get("accessories")), labor,
          _valid_date(data.get("deadline"), "prazo estimado"), tech, now(),
-         warranty_days(data.get("warranty_days")), clean(data.get("notes")), user["id"], token))
+         wdays, wtype, clean(data.get("notes")), user["id"], token))
     oid = cur.lastrowid
     log_event(conn, oid, "recebido", user["id"], "Aparelho recebido")
     audit(conn, user["id"], "os_criada", "service_order", oid, after={"cliente": name, "aparelho": f"{brand} {model}"})
@@ -125,8 +169,19 @@ def update_order(conn, user, perms, oid, data, auth=None):
         put("deadline", _valid_date(data["deadline"], "prazo estimado"))
     if "technician_id" in data:
         put("technician_id", data["technician_id"] or None)
-    if "warranty_days" in data:
-        put("warranty_days", warranty_days(data["warranty_days"]))
+    if "warranty_days" in data or "warranty_type" in data:
+        wtype, wdays = _warranty_for(conn, data, o["warranty_type"])
+        if "warranty_type" in data and "warranty_days" not in data and wtype == o["warranty_type"]:
+            wdays = o["warranty_days"]
+        put("warranty_type", wtype)
+        put("warranty_days", wdays)
+    if "other_cost_cents" in data or "other_cost_note" in data:
+        if "ver_custos" not in perms:
+            raise ApiError("Sem permissão para lançar ou alterar custos internos da OS.", 403)
+        if "other_cost_cents" in data:
+            put("other_cost_cents", to_int(data["other_cost_cents"], "Outros custos"))
+        if "other_cost_note" in data:
+            put("other_cost_note", clean(data["other_cost_note"]))
     authorized = None
     if "discount_cents" in data:
         d = to_int(data["discount_cents"], "Desconto")
@@ -162,8 +217,9 @@ def add_part(conn, user, perms, oid, product_id, qty, price_cents=None):
             raise ApiError("Sem permissão para alterar o preço da peça.", 403)
         price = to_int(price_cents, "Preço da peça")
     cur = conn.execute(
-        "INSERT INTO service_order_parts(order_id, product_id, name, qty, unit_cost_cents, unit_price_cents) VALUES (?,?,?,?,?,?)",
-        (oid, product_id, prod["name"], qty, prod["cost_cents"], price))
+        "INSERT INTO service_order_parts(order_id, product_id, kind, name, qty, unit_cost_cents, unit_price_cents, created_by, created_at)"
+        " VALUES (?,?,'estoque',?,?,?,?,?,?)",
+        (oid, product_id, prod["name"], qty, prod["cost_cents"], price, user["id"], now()))
     move_stock(conn, product_id, "os_peca", -qty, user["id"], f"Peça usada na OS {oid}", unit_cost=prod["cost_cents"],
                ref_type="service_order", ref_id=oid)
     if o["approved"]:
@@ -174,22 +230,182 @@ def add_part(conn, user, perms, oid, product_id, qty, price_cents=None):
     return cur.lastrowid
 
 
-def remove_part(conn, user, perms, oid, part_id):
+def _open_order(conn, perms, oid):
     _need(perms)
     o = order_row(conn, oid)
     if o["status"] in FINAL:
         raise ApiError("Esta ordem de serviço está encerrada.", 409)
+    return o
+
+
+def _part(conn, oid, part_id, kind=None):
     part = conn.execute("SELECT * FROM service_order_parts WHERE id=? AND order_id=? AND removed_at IS NULL", (part_id, oid)).fetchone()
     if not part:
         raise ApiError("Peça não encontrada.", 404)
+    if kind and part["kind"] != kind:
+        raise ApiError("Esta operação vale apenas para peças avulsas (sob encomenda)." if kind == "avulsa"
+                       else "Esta operação vale apenas para peças do estoque.", 409)
+    return part
+
+
+def _reset_approval(conn, o, user, why):
+    """Mudança no valor cobrado depois da autorização do cliente exige nova autorização."""
+    if o["approved"]:
+        conn.execute("UPDATE service_orders SET approved=0, approved_at=NULL WHERE id=?", (o["id"],))
+        log_event(conn, o["id"], o["status"], user["id"], f"{why}: nova autorização do cliente é necessária")
+
+
+def _check_not_below_paid(conn, oid, delta_cents):
+    o = order_row(conn, oid)
     t = totals(conn, o)
-    if t["total_cents"] - part["unit_price_cents"] * part["qty"] < t["paid_cents"]:
+    if t["total_cents"] + delta_cents < t["paid_cents"]:
+        raise ApiError("A alteração deixaria o total menor que o valor já pago pelo cliente.", 409)
+
+
+def _money_or_none(value, label):
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return to_int(value, label)
+
+
+def add_loose_part(conn, user, perms, oid, data):
+    """Peça avulsa / sob encomenda: vale só para esta OS, não exige cadastro e NÃO mexe no estoque."""
+    o = _open_order(conn, perms, oid)
+    name = clean(data.get("name"))
+    if not name or len(name) < 2:
+        raise ApiError("Informe o nome ou a descrição da peça.")
+    qty = to_int(data.get("qty", 1), "Quantidade", minimum=1, maximum=1000)
+    price = to_int(data.get("unit_price_cents") or 0, "Valor cobrado do cliente")
+    cost = _money_or_none(data.get("unit_cost_cents"), "Custo da peça")
+    supplier = clean(data.get("supplier"))
+    if (cost is not None or supplier) and "ver_custos" not in perms:
+        raise ApiError("Sem permissão para informar custo ou fornecedor da peça. Deixe em branco: a gerência completa depois.", 403)
+    status = clean(data.get("part_status")) or "aguardando_compra"
+    if status not in PART_STATUS or status == "cancelada":
+        raise ApiError("Situação da peça inválida.")
+    if status in BOUGHT and not o["approved"] and (o["labor_cents"] + price * qty) > 0:
+        raise ApiError("O cliente ainda não autorizou o orçamento. Registre a autorização antes de encomendar a peça.", 409, "approval_required")
+    cur = conn.execute(
+        "INSERT INTO service_order_parts(order_id, product_id, kind, name, compat, qty, unit_cost_cents, unit_price_cents, part_status,"
+        " supplier, notes, cost_updated_by, cost_updated_at, created_by, created_at) VALUES (?,NULL,'avulsa',?,?,?,?,?,?,?,?,?,?,?,?)",
+        (oid, name, clean(data.get("compat")), qty, cost, price, status, supplier, clean(data.get("notes")),
+         user["id"] if cost is not None else None, now() if cost is not None else None, user["id"], now()))
+    if price * qty > 0:
+        _reset_approval(conn, o, user, "Peça avulsa adicionada após aprovação")
+    log_event(conn, oid, o["status"], user["id"], f"Peça avulsa adicionada: {qty}x {name} ({PART_STATUS[status]})")
+    audit(conn, user["id"], "os_peca_avulsa_adicionada", "service_order", oid,
+          after={"peca": name, "qtd": qty, "cobrado_cents": price * qty, "custo_informado": cost is not None})
+    return cur.lastrowid
+
+
+def update_loose_part(conn, user, perms, oid, part_id, data):
+    """Edita a peça avulsa: dados, valor cobrado e (com permissão) custo real."""
+    o = _open_order(conn, perms, oid)
+    part = _part(conn, oid, part_id, "avulsa")
+    cancelled_loss = part["part_status"] == "cancelada" and part["cancel_after_purchase"]
+    if part["part_status"] == "cancelada" and not cancelled_loss:
+        raise ApiError("Peça cancelada não pode ser editada.", 409)
+    sets, vals, before, after = [], [], {}, {}
+
+    def put(col, val, label=None):
+        if val != part[col]:
+            sets.append(f"{col}=?")
+            vals.append(val)
+            before[label or col], after[label or col] = part[col], val
+
+    money_changed = False
+    if not cancelled_loss:
+        if "name" in data:
+            name = clean(data["name"])
+            if not name or len(name) < 2:
+                raise ApiError("Informe o nome ou a descrição da peça.")
+            put("name", name)
+        for col in ("compat", "notes"):
+            if col in data:
+                put(col, clean(data[col]))
+        qty, price = part["qty"], part["unit_price_cents"]
+        if "qty" in data:
+            qty = to_int(data["qty"], "Quantidade", minimum=1, maximum=1000)
+            put("qty", qty)
+        if "unit_price_cents" in data:
+            price = to_int(data["unit_price_cents"] or 0, "Valor cobrado do cliente")
+            put("unit_price_cents", price)
+        money_changed = qty * price != part["qty"] * part["unit_price_cents"]
+        if money_changed:
+            _check_not_below_paid(conn, oid, qty * price - part["qty"] * part["unit_price_cents"])
+    if "unit_cost_cents" in data or "supplier" in data:
+        if "ver_custos" not in perms:
+            raise ApiError("Sem permissão para lançar ou alterar o custo da peça.", 403)
+        if "unit_cost_cents" in data:
+            cost = _money_or_none(data["unit_cost_cents"], "Custo da peça")
+            if cost != part["unit_cost_cents"]:
+                put("unit_cost_cents", cost)
+                sets += ["cost_updated_by=?", "cost_updated_at=?"]
+                vals += [user["id"], now()]
+        if "supplier" in data:
+            put("supplier", clean(data["supplier"]))
+    if sets:
+        conn.execute(f"UPDATE service_order_parts SET {', '.join(sets)} WHERE id=?", vals + [part_id])
+        if money_changed:
+            _reset_approval(conn, o, user, "Valor da peça alterado após aprovação")
+        log_event(conn, oid, o["status"], user["id"], f"Peça avulsa alterada: {part['name']}")
+        audit(conn, user["id"], "os_peca_avulsa_alterada", "service_order", oid, before=before, after=after)
+
+
+def set_part_status(conn, user, perms, oid, part_id, status, note=None):
+    """aguardando compra → encomendada → recebida → instalada (cancelar é outra operação)."""
+    o = _open_order(conn, perms, oid)
+    part = _part(conn, oid, part_id, "avulsa")
+    if status not in PART_STATUS or status == "cancelada":
+        raise ApiError("Situação da peça inválida. Para desistir da peça use \"Cancelar peça\".")
+    if part["part_status"] == "cancelada":
+        raise ApiError("Peça cancelada não pode mudar de situação.", 409)
+    if status == part["part_status"]:
+        raise ApiError("A peça já está nesta situação.")
+    if status in BOUGHT and not o["approved"] and totals(conn, o)["total_cents"] > 0:
+        raise ApiError("O cliente ainda não autorizou o orçamento. Registre a autorização antes de encomendar a peça.", 409, "approval_required")
+    conn.execute("UPDATE service_order_parts SET part_status=? WHERE id=?", (status, part_id))
+    log_event(conn, oid, o["status"], user["id"], f"Peça '{part['name']}': {PART_STATUS[status]}" + (f" ({clean(note)})" if clean(note) else ""))
+    audit(conn, user["id"], "os_peca_avulsa_situacao", "service_order", oid,
+          before={"peca": part["name"], "situacao": part["part_status"]}, after={"situacao": status})
+
+
+def cancel_part(conn, user, perms, oid, part_id, reason, auth=None):
+    """O cliente desistiu da peça avulsa. Se ela já foi comprada, o custo continua no resultado (prejuízo) e exige supervisor."""
+    o = _open_order(conn, perms, oid)
+    part = _part(conn, oid, part_id, "avulsa")
+    if part["part_status"] == "cancelada":
+        raise ApiError("A peça já está cancelada.", 409)
+    reason = clean(reason)
+    if not reason:
+        raise ApiError("Informe o motivo do cancelamento da peça.")
+    bought = part["part_status"] in BOUGHT
+    authorized = authorize(conn, user, perms, "cancelar_vendas", auth) if bought else None
+    _check_not_below_paid(conn, oid, -part["qty"] * part["unit_price_cents"])
+    conn.execute("UPDATE service_order_parts SET part_status='cancelada', cancel_after_purchase=? WHERE id=?", (1 if bought else 0, part_id))
+    log_event(conn, oid, o["status"], user["id"], f"Peça cancelada: {part['qty']}x {part['name']} — {reason}")
+    audit(conn, user["id"], "os_peca_avulsa_cancelada", "service_order", oid,
+          before={"peca": part["name"], "situacao": part["part_status"]}, after={"motivo": reason, "custo_mantido": bought},
+          authorized_by=authorized if authorized and authorized != user["id"] else None)
+
+
+def remove_part(conn, user, perms, oid, part_id):
+    o = _open_order(conn, perms, oid)
+    part = _part(conn, oid, part_id)
+    price = part["unit_price_cents"] * part["qty"] if part["part_status"] != "cancelada" else 0
+    t = totals(conn, o)
+    if t["total_cents"] - price < t["paid_cents"]:
         raise ApiError("Remover esta peça deixaria o total menor que o valor já pago.", 409)
-    conn.execute("UPDATE service_order_parts SET removed_at=? WHERE id=?", (now(), part_id))
-    move_stock(conn, part["product_id"], "os_estorno", part["qty"], user["id"], f"Peça removida da OS {oid}",
-               unit_cost=part["unit_cost_cents"], ref_type="service_order", ref_id=oid)
+    if part["kind"] == "avulsa":
+        if part["part_status"] in BOUGHT:
+            raise ApiError("Esta peça já foi comprada. Use \"Cancelar peça\" para registrar a desistência e manter o custo.", 409)
+        conn.execute("UPDATE service_order_parts SET removed_at=? WHERE id=?", (now(), part_id))  # sem estoque para devolver
+    else:
+        conn.execute("UPDATE service_order_parts SET removed_at=? WHERE id=?", (now(), part_id))
+        move_stock(conn, part["product_id"], "os_estorno", part["qty"], user["id"], f"Peça removida da OS {oid}",
+                   unit_cost=part["unit_cost_cents"], ref_type="service_order", ref_id=oid)
     log_event(conn, oid, o["status"], user["id"], f"Peça removida: {part['qty']}x {part['name']}")
-    audit(conn, user["id"], "os_peca_removida", "service_order", oid, before={"produto": part["name"], "qtd": part["qty"]})
+    audit(conn, user["id"], "os_peca_removida", "service_order", oid, before={"produto": part["name"], "qtd": part["qty"], "tipo": part["kind"]})
 
 
 def approve(conn, user, perms, oid, approved, note):
@@ -223,6 +439,13 @@ def set_status(conn, user, perms, oid, status, note=None, allow_pending=False, a
     t = totals(conn, o)
     if status in NEEDS_APPROVAL and t["total_cents"] > 0 and not o["approved"]:
         raise ApiError("O cliente ainda não autorizou o orçamento. Registre a autorização antes de continuar.", 409, "approval_required")
+    if status == "pronto_retirada":
+        waiting = [r["name"] for r in conn.execute(
+            f"SELECT name FROM service_order_parts WHERE order_id=? AND kind='avulsa' AND {ACTIVE_PART}"
+            " AND part_status IN ('aguardando_compra','encomendada')", (oid,))]
+        if waiting:
+            raise ApiError("Ainda há peça avulsa que não chegou: " + ", ".join(waiting)
+                           + ". Marque como recebida/instalada (ou cancele a peça) antes de finalizar a OS.", 409, "parts_pending")
     if status == "entregue":
         if o["status"] != "pronto_retirada":
             raise ApiError("Só é possível entregar uma ordem que esteja \"Pronto para retirada\".", 409)
@@ -249,16 +472,28 @@ def set_status(conn, user, perms, oid, status, note=None, allow_pending=False, a
                          (sess["id"], "devolucao", cash_back, f"Estorno da OS {oid} cancelada", user["id"], now()))
         conn.execute("UPDATE service_payments SET voided_at=? WHERE order_id=? AND voided_at IS NULL", (now(), oid))
         for part in conn.execute("SELECT * FROM service_order_parts WHERE order_id=? AND removed_at IS NULL", (oid,)).fetchall():
+            if part["kind"] == "avulsa":
+                # Peça avulsa não volta ao estoque: fica registrada como cancelada (e o custo fica se já foi comprada).
+                if part["part_status"] != "cancelada":
+                    conn.execute("UPDATE service_order_parts SET part_status='cancelada', cancel_after_purchase=? WHERE id=?",
+                                 (1 if part["part_status"] in BOUGHT else 0, part["id"]))
+                continue
             conn.execute("UPDATE service_order_parts SET removed_at=? WHERE id=?", (now(), part["id"]))
             move_stock(conn, part["product_id"], "os_estorno", part["qty"], user["id"], f"OS {oid} cancelada",
                        unit_cost=part["unit_cost_cents"], ref_type="service_order", ref_id=oid)
     sets, vals = ["status=?"], [status]
+    terms = get_settings(conn).get("os_warranty_terms") or ""
+    if status in ("pronto_retirada", "entregue") and not o["warranty_terms"] and terms:
+        sets.append("warranty_terms=?")   # guarda o texto vigente: editar o termo depois não altera OS já finalizadas
+        vals.append(terms)
     if status == "pronto_retirada":
         sets.append("completed_at=?")
         vals.append(now())
     if status == "entregue":
         sets.append("delivered_at=?")
         vals.append(now())
+        sets += ["warranty_start=?", "warranty_end=?"]
+        vals += [now()[:10], add_days(now(), o["warranty_days"])]
     conn.execute(f"UPDATE service_orders SET {', '.join(sets)} WHERE id=?", vals + [oid])
     log_event(conn, oid, status, user["id"], note)
     audit(conn, user["id"], "os_situacao", "service_order", oid, before={"status": o["status"]},
@@ -295,13 +530,22 @@ def detail(conn, oid):
     o = dict(order_row(conn, oid))
     o.update(totals(conn, o))
     o["status_label"] = STATUS[o["status"]]
-    o["parts"] = [dict(r) for r in conn.execute("SELECT * FROM service_order_parts WHERE order_id=? AND removed_at IS NULL ORDER BY id", (oid,))]
+    o["parts"] = []
+    for r in conn.execute("SELECT * FROM service_order_parts WHERE order_id=? AND removed_at IS NULL ORDER BY id", (oid,)):
+        p = dict(r)
+        p["kind_label"] = PART_KIND[p["kind"]]
+        p["part_status_label"] = PART_STATUS.get(p["part_status"]) if p["part_status"] else None
+        p["cancelled"] = p["part_status"] == "cancelada"
+        p["line_price_cents"] = 0 if p["cancelled"] else p["unit_price_cents"] * p["qty"]
+        p["line_cost_cents"] = None if p["unit_cost_cents"] is None else p["unit_cost_cents"] * p["qty"]
+        o["parts"].append(p)
     o["payments"] = [dict(r) for r in conn.execute("SELECT * FROM service_payments WHERE order_id=? ORDER BY id", (oid,))]
     o["events"] = [dict(r) for r in conn.execute(
         "SELECT e.*, u.name AS user_name FROM service_order_events e LEFT JOIN users u ON u.id=e.user_id WHERE order_id=? ORDER BY e.id DESC", (oid,))]
     t = conn.execute("SELECT name FROM users WHERE id=?", (o["technician_id"],)).fetchone() if o["technician_id"] else None
     o["technician_name"] = t["name"] if t else None
-    o["warranty_ends"] = add_days(o["delivered_at"], o["warranty_days"]) if o["delivered_at"] else None
+    o["warranty_ends"] = o["warranty_end"] or (add_days(o["delivered_at"], o["warranty_days"]) if o["delivered_at"] else None)
+    o["warranty_type_label"] = next((t["label"] for t in warranty_types(conn) if t["key"] == o["warranty_type"]), None)
     keys = [k for k in (o["imei"], o["serial"]) if k]
     o["history"] = []
     if keys:
@@ -313,9 +557,43 @@ def detail(conn, oid):
     return o
 
 
+def customer_document(conn, oid):
+    """Dados da OS que podem ser entregues ao cliente. Lista BRANCA: só entra aqui o que for explicitamente copiado.
+    Custos, lucro, fornecedores, observações internas e situação de compra das peças nunca passam por esta função."""
+    d = detail(conn, oid)
+    cfg = get_settings(conn)
+    itemized = cfg.get("os_print_itemized", "1") == "1"
+    lines, parts_total = [], 0
+    for p in d["parts"]:
+        if p["cancelled"]:
+            continue
+        total = p["unit_price_cents"] * p["qty"]
+        parts_total += total
+        desc = p["name"] + (f" ({p['compat']})" if p.get("compat") else "")
+        lines.append({"description": desc, "qty": p["qty"], "unit_cents": p["unit_price_cents"], "total_cents": total})
+    if not itemized:
+        lines = [{"description": "Peças", "qty": None, "unit_cents": None, "total_cents": parts_total}] if parts_total else []
+    lines.append({"description": "Mão de obra", "qty": None, "unit_cents": None, "total_cents": d["labor_cents"]})
+    start, end = d["warranty_start"], d["warranty_ends"]
+    return {
+        "id": d["id"], "status_label": d["status_label"],
+        "store_name": cfg.get("store_name") or "", "store_info": cfg.get("store_info") or "",
+        "entry_at": d["entry_at"], "deadline": d["deadline"], "completed_at": d["completed_at"], "delivered_at": d["delivered_at"],
+        "customer_name": d["customer_name"], "customer_phone": d["customer_phone"],
+        "brand": d["brand"], "model": d["model"], "imei": d["imei"], "serial": d["serial"],
+        "defect": d["defect"], "physical_state": d["physical_state"], "accessories": d["accessories"],
+        "diagnosis": d["diagnosis"], "services_done": d["services_done"], "technician_name": d["technician_name"],
+        "lines": lines, "itemized": itemized, "discount_cents": d["discount_cents"], "total_cents": d["total_cents"],
+        "paid_cents": d["paid_cents"], "balance_cents": d["balance_cents"], "approved_at": d["approved_at"] if d["approved"] else None,
+        "warranty": {"days": d["warranty_days"], "type_label": d["warranty_type_label"], "start": start, "end": end},
+        "warranty_terms": d["warranty_terms"] or cfg.get("os_warranty_terms") or "",
+        "service_conditions": cfg.get("os_service_conditions") or "",
+    }
+
+
 def search(conn, q="", status=None, technician_id=None, open_only=False, unclaimed=False, limit=300):
     sql = ("SELECT o.*, u.name AS technician_name,"
-           " (SELECT COALESCE(SUM(unit_price_cents*qty),0) FROM service_order_parts p WHERE p.order_id=o.id AND p.removed_at IS NULL) AS parts_cents,"
+           " (SELECT COALESCE(SUM(unit_price_cents*qty),0) FROM service_order_parts p WHERE p.order_id=o.id AND p.removed_at IS NULL AND (p.part_status IS NULL OR p.part_status<>'cancelada')) AS parts_cents,"
            " (SELECT COALESCE(SUM(amount_cents),0) FROM service_payments s WHERE s.order_id=o.id AND s.voided_at IS NULL) AS paid_cents"
            " FROM service_orders o LEFT JOIN users u ON u.id=o.technician_id WHERE 1=1")
     args = []

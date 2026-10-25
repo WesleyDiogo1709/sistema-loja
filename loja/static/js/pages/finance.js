@@ -25,6 +25,7 @@ export default async function ({ el }) {
         row('(−) Taxas de cartão (estimadas)', '−' + money(s.card_fees_cents)), row('(−) Despesas fixas', '−' + money(s.expenses_fixed_cents)), row('(−) Despesas variáveis', '−' + money(s.expenses_variable_cents)), row('(−) Custo de garantias', '−' + money(s.warranty_cost_cents)),
         hasProfit ? row('RESULTADO DO PERÍODO', money(s.result_cents), { bold: true }) : null));
       const rec = Object.entries(s.received_by_method);
+      if (hasProfit && s.services_cost_incomplete) out.append(h('div', { class: 'alertbox bad' }, `${s.services_cost_incomplete} ordem(ns) de serviço entregue(s) no período estão sem o custo de alguma peça informado. O custo e o lucro acima podem estar maiores/menores que o real: complete o custo na OS.`));
       out.append(h('div', { class: 'grid2' }, h('div', {}, h('h3', {}, 'Demonstrativo'), t1), h('div', {}, h('h3', {}, 'Recebimentos (dinheiro que entrou)'),
         table([{ label: 'Forma', render: (r) => methodLabel(r[0]) }, { label: 'Valor', render: (r) => money(r[1]), num: true }], rec, { empty: 'Sem recebimentos.' }), h('p', {}, h('b', {}, 'Total recebido: '), money(s.received_cents)),
         h('p', { class: 'muted' }, `Compras de mercadoria com vencimento no período: ${money(s.purchases_cents)} (não são despesa: viram estoque e entram no custo quando vendidas).`))),

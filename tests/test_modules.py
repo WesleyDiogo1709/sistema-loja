@@ -190,10 +190,13 @@ class ServiceOrderTests(BaseCase):
 
     def test_print_os_page(self):
         oid = self.order(customer_name="Zé <script>")
-        html = self.admin.c.get(f"/print/os/{oid}").get_data(as_text=True)
+        html = self.admin.c.get(f"/print/os/{oid}?formato=a4").get_data(as_text=True)   # A4 continua funcionando
         self.assertIn(f"ORDEM DE SERVIÇO Nº {oid}", html)
         self.assertNotIn("<script>alert", html)
         self.assertIn("Zé &lt;script&gt;", html)
+        thermal = self.admin.c.get(f"/print/os/{oid}").get_data(as_text=True)         # padrão: térmica 80 mm
+        self.assertIn(f"Nº {oid}", thermal)
+        self.assertIn("Zé &lt;script&gt;", thermal)
 
     def test_technician_cannot_see_cash_or_finance(self):
         t = self.user("tato", "tecnico")

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OS {{ doc.id }} — via do cliente</title>
+<style>
+  /* Bobina térmica (Epson TM-T20: papel 80 mm, largura útil de impressão ≈ 72 mm). Largura ajustável em Configurações. */
+  @page { size: {{ paper_mm }}mm 297mm; margin: 0; }  /* reserva; print.js ajusta a altura ao cupom */
+  :root { --w: {{ width_mm }}mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+  body { font-family: Arial, "Liberation Sans", Helvetica, sans-serif; font-size: 12.5px; line-height: 1.28; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .ticket { width: var(--w); margin: 0 auto; padding: 2mm 0 6mm; overflow-wrap: anywhere; hyphens: auto; }
+  .bar { width: var(--w); margin: 0 auto 6px; padding: 8px 0; display: flex; gap: 8px; flex-wrap: wrap; font: 13px Arial, sans-serif; }
+  .bar button, .bar a { font: inherit; padding: 6px 12px; cursor: pointer; border: 1px solid #888; background: #f3f3f3; color: #000; text-decoration: none; border-radius: 4px; }
+  .bar .hint { flex-basis: 100%; color: #555; font-size: 11.5px; }
+  .c { text-align: center; } .r { text-align: right; } .pre { white-space: pre-line; }
+  h1 { font-size: 16px; line-height: 1.15; margin: 0 0 1mm; text-align: center; font-weight: 700; }
+  .info { font-size: 11px; text-align: center; margin-bottom: 1.5mm; }
+  hr { border: 0; border-top: 1px dashed #000; margin: 2mm 0; }
+  hr.solid { border-top-style: solid; }
+  .os-num { text-align: center; margin: 0.5mm 0 1mm; }
+  .os-num small { display: block; font-size: 11px; letter-spacing: .08em; }
+  .os-num strong { display: block; font-size: 30px; line-height: 1; }
+  .row { display: flex; justify-content: space-between; gap: 2mm; align-items: baseline; }
+  .row > span:first-child { flex: 0 0 auto; }
+  .row > span:last-child { text-align: right; min-width: 0; }
+  h2 { font-size: 11px; margin: 2.2mm 0 0.6mm; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #000; padding-bottom: .3mm; }
+  p { margin: 0 0 1mm; }
+  .field b { font-weight: 700; }
+  .item { margin-bottom: 1.2mm; break-inside: avoid; }
+  .item .sub { text-align: right; font-size: 11.5px; }
+  .total { font-size: 17px; font-weight: 700; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 1mm 0; margin: 1.5mm 0; }
+  .terms { font-size: 10.5px; line-height: 1.25; }
+  .terms p { margin: 0 0 1.4mm; orphans: 3; widows: 3; }
+  .terms p.t { font-weight: 700; font-size: 11px; text-align: center; margin-bottom: 1.6mm; }
+  .sign { margin-top: 11mm; break-inside: avoid; }
+  .sign .line { border-top: 1px solid #000; padding-top: 0.8mm; text-align: center; font-size: 11px; margin-bottom: 11mm; }
+  .keep { break-inside: avoid; }
+  .foot { text-align: center; font-size: 10px; margin-top: 2mm; }
+  @media screen { body { background: #e8e8e8; } .ticket { background: #fff; padding: 3mm 2mm 6mm; box-shadow: 0 0 6px rgba(0,0,0,.25); } }
+  @media print { .bar { display: none !important; } .ticket { padding: 1mm 0 4mm; } }
+</style></head>
+<body>
+<div class="bar">
+  <button id="btn-print">Imprimir</button>
+  <a href="?formato=a4">Versão A4</a>
+  <button id="btn-close">Fechar</button>
+  <span class="hint">Térmica {{ paper_mm }} mm · largura útil {{ width_mm }} mm. Se algo sair cortado, veja “Impressão térmica” no README.</span>
+</div>
+<main class="ticket" data-paper="{{ paper_mm }}">
+  <h1>{{ doc.store_name }}</h1>
+  {% if doc.store_info %}<div class="info pre">{{ doc.store_info }}</div>{% endif %}
+  <hr class="solid">
+  <div class="os-num"><small>ORDEM DE SERVIÇO</small><strong>Nº {{ doc.id }}</strong></div>
+  <div class="row"><span>Entrada:</span><span>{{ doc.entry_at|dt }}</span></div>
+  <div class="row"><span>Previsão de entrega:</span><span>{{ (doc.deadline|dt) or 'a combinar' }}</span></div>
+  <hr>
+
+  <h2>Cliente</h2>
+  <p class="field"><b>{{ doc.customer_name }}</b></p>
+  <p class="field">Contato: {{ doc.customer_phone or '—' }}</p>
+
+  <h2>Aparelho</h2>
+  <p class="field"><b>{{ doc.brand }} {{ doc.model }}</b></p>
+  {% if doc.imei %}<p class="field">IMEI: {{ doc.imei }}</p>{% endif %}
+  {% if doc.serial %}<p class="field">Série: {{ doc.serial }}</p>{% endif %}
+
+  <h2>Defeito relatado</h2>
+  <p class="pre">{{ doc.defect }}</p>
+
+  <h2>Estado físico na entrada</h2>
+  <p class="pre">{{ doc.physical_state or 'Não informado' }}</p>
+
+  {% if doc.accessories %}<h2>Acessórios recebidos</h2><p class="pre">{{ doc.accessories }}</p>{% endif %}
+  {% if doc.diagnosis %}<h2>Diagnóstico</h2><p class="pre">{{ doc.diagnosis }}</p>{% endif %}
+  {% if doc.services_done %}<h2>Serviços previstos / realizados</h2><p class="pre">{{ doc.services_done }}</p>{% endif %}
+
+  <h2>Valores</h2>
+  {% for l in doc.lines %}
+  <div class="item">
+    <div>{{ l.description }}</div>
+    {% if l.qty %}
+      <div class="row sub"><span>{{ l.qty }} x {{ l.unit_cents|brl }}</span><span>{% if l.total_cents %}{{ l.total_cents|brl }}{% else %}incluso{% endif %}</span></div>
+    {% else %}
+      <div class="sub">{{ l.total_cents|brl }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% if doc.discount_cents %}<div class="row"><span>Desconto</span><span>- {{ doc.discount_cents|brl }}</span></div>{% endif %}
+  <div class="row total"><span>TOTAL</span><span>{{ doc.total_cents|brl }}</span></div>
+  {% if doc.paid_cents %}
+    <div class="row"><span>Já pago</span><span>{{ doc.paid_cents|brl }}</span></div>
+    <div class="row"><span><b>Saldo a pagar</b></span><span><b>{{ doc.balance_cents|brl }}</b></span></div>
+  {% endif %}
+  {% if doc.approved_at %}<p style="margin-top:1.5mm;font-size:11px">Orçamento autorizado em {{ doc.approved_at|dt }}.</p>{% endif %}
+
+  <h2>Garantia do serviço</h2>
+  <div class="keep">
+    <p class="field"><b>Prazo: {{ doc.warranty.days }} dias</b>{% if doc.warranty.type_label %} ({{ doc.warranty.type_label }}){% endif %}</p>
+    {% if doc.warranty.end %}
+      <p class="field">Início: {{ doc.warranty.start|dt }}<br>Término: <b>{{ doc.warranty.end|dt }}</b></p>
+    {% else %}
+      <p class="field">Início: na entrega do aparelho ao cliente.<br>Término: {{ doc.warranty.days }} dias após a entrega (data registrada na retirada).</p>
+    {% endif %}
+  </div>
+
+  <hr>
+  <div class="terms">
+    {% for para in doc.warranty_terms.split('\n\n') %}{% if para.strip() %}<p class="{{ 't' if loop.first and para.strip() == para.strip().upper() else '' }}">{{ para.strip() }}</p>{% endif %}{% endfor %}
+  </div>
+  {% if doc.service_conditions %}
+  <hr>
+  <div class="terms"><p class="t">CONDIÇÕES DE ATENDIMENTO</p><p>{{ doc.service_conditions }}</p></div>
+  {% endif %}
+
+  <div class="sign">
+    <div class="line">Assinatura do cliente<br>{{ doc.customer_name }}</div>
+    <div class="line">Responsável técnico{% if doc.technician_name %}<br>{{ doc.technician_name }}{% endif %}</div>
+  </div>
+  <div class="foot">{{ doc.store_name }} · OS {{ doc.id }}<br>Documento sem valor fiscal</div>
+</main>
+<script src="/static/print.js"></script>
+</body></html>

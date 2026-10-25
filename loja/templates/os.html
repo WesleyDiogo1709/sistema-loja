@@ -1,40 +1,45 @@
 <!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><title>Ordem de Serviço {{ os.id }}</title>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Ordem de Serviço {{ doc.id }}</title>
 <link rel="stylesheet" href="/static/print.css">
-<style>@page { size: A4; margin: 15mm; }</style></head>
+<style>@page { size: A4; margin: 15mm; } .terms p { margin: 0 0 6px; font-size: 11px; } .terms p.t { font-weight: bold; }
+.keep { break-inside: avoid; } h3 { break-after: avoid; }</style></head>
 <body class="doc">
-<div class="noprint bar"><button id="btn-print">Imprimir</button> <button id="btn-close">Fechar</button></div>
-<h1>{{ settings.store_name }}</h1>
-{% if settings.store_info %}<div class="small pre">{{ settings.store_info }}</div>{% endif %}
-<h2>ORDEM DE SERVIÇO Nº {{ os.id }}</h2>
+<div class="noprint bar"><button id="btn-print">Imprimir</button> <a href="?formato=termico">Versão térmica 80 mm</a> <button id="btn-close">Fechar</button> <span class="small">Via do cliente.</span></div>
+<h1>{{ doc.store_name }}</h1>
+{% if doc.store_info %}<div class="small pre">{{ doc.store_info }}</div>{% endif %}
+<h2>ORDEM DE SERVIÇO Nº {{ doc.id }}</h2>
 <table class="grid">
-  <tr><th>Cliente</th><td>{{ os.customer_name }}</td><th>Telefone</th><td>{{ os.customer_phone }}</td></tr>
-  <tr><th>Aparelho</th><td>{{ os.brand }} {{ os.model }}</td><th>IMEI / Série</th><td>{{ os.imei or '-' }} / {{ os.serial or '-' }}</td></tr>
-  <tr><th>Entrada</th><td>{{ os.entry_at|dt }}</td><th>Prazo estimado</th><td>{{ os.deadline|dt or '-' }}</td></tr>
-  <tr><th>Situação</th><td>{{ STATUS[os.status] }}</td><th>Técnico</th><td>{{ os.technician_name or '-' }}</td></tr>
+  <tr><th>Cliente</th><td>{{ doc.customer_name }}</td><th>Contato</th><td>{{ doc.customer_phone }}</td></tr>
+  <tr><th>Aparelho</th><td>{{ doc.brand }} {{ doc.model }}</td><th>IMEI / Série</th><td>{{ doc.imei or '-' }} / {{ doc.serial or '-' }}</td></tr>
+  <tr><th>Entrada</th><td>{{ doc.entry_at|dt }}</td><th>Previsão de entrega</th><td>{{ (doc.deadline|dt) or 'a combinar' }}</td></tr>
+  <tr><th>Situação</th><td>{{ doc.status_label }}</td><th>Técnico</th><td>{{ doc.technician_name or '-' }}</td></tr>
 </table>
-<h3>Defeito relatado</h3><p class="pre">{{ os.defect }}</p>
-<h3>Estado físico na entrada</h3><p class="pre">{{ os.physical_state or 'Não informado' }}</p>
-<h3>Acessórios recebidos</h3><p class="pre">{{ os.accessories or 'Nenhum' }}</p>
-{% if os.diagnosis %}<h3>Diagnóstico técnico</h3><p class="pre">{{ os.diagnosis }}</p>{% endif %}
-{% if os.services_done %}<h3>Serviços realizados</h3><p class="pre">{{ os.services_done }}</p>{% endif %}
+<h3>Defeito relatado</h3><p class="pre">{{ doc.defect }}</p>
+<h3>Estado físico na entrada</h3><p class="pre">{{ doc.physical_state or 'Não informado' }}</p>
+{% if doc.accessories %}<h3>Acessórios recebidos</h3><p class="pre">{{ doc.accessories }}</p>{% endif %}
+{% if doc.diagnosis %}<h3>Diagnóstico técnico</h3><p class="pre">{{ doc.diagnosis }}</p>{% endif %}
+{% if doc.services_done %}<h3>Serviços previstos / realizados</h3><p class="pre">{{ doc.services_done }}</p>{% endif %}
 <h3>Valores</h3>
 <table class="items">
   <thead><tr><th class="l">Descrição</th><th>Qtd</th><th class="r">Valor</th></tr></thead>
   <tbody>
-  {% for p in os.parts %}<tr><td class="l">Peça: {{ p.name }}</td><td>{{ p.qty }}</td><td class="r">{{ (p.qty * p.unit_price_cents)|brl }}</td></tr>{% endfor %}
-  <tr><td class="l">Mão de obra</td><td>1</td><td class="r">{{ os.labor_cents|brl }}</td></tr>
-  {% if os.discount_cents %}<tr><td class="l">Desconto</td><td></td><td class="r">-{{ os.discount_cents|brl }}</td></tr>{% endif %}
-  <tr class="big"><td class="l">TOTAL</td><td></td><td class="r">{{ os.total_cents|brl }}</td></tr>
-  <tr><td class="l">Já pago</td><td></td><td class="r">{{ os.paid_cents|brl }}</td></tr>
-  <tr><td class="l"><b>Saldo</b></td><td></td><td class="r"><b>{{ os.balance_cents|brl }}</b></td></tr>
+  {% for l in doc.lines %}<tr><td class="l">{{ l.description }}</td><td>{{ l.qty or '' }}</td><td class="r">{% if l.total_cents or not l.qty %}{{ l.total_cents|brl }}{% else %}incluso{% endif %}</td></tr>{% endfor %}
+  {% if doc.discount_cents %}<tr><td class="l">Desconto</td><td></td><td class="r">-{{ doc.discount_cents|brl }}</td></tr>{% endif %}
+  <tr class="big"><td class="l">TOTAL</td><td></td><td class="r">{{ doc.total_cents|brl }}</td></tr>
+  <tr><td class="l">Já pago</td><td></td><td class="r">{{ doc.paid_cents|brl }}</td></tr>
+  <tr><td class="l"><b>Saldo</b></td><td></td><td class="r"><b>{{ doc.balance_cents|brl }}</b></td></tr>
   </tbody>
 </table>
-{% if os.approved %}<p>Orçamento autorizado em {{ os.approved_at|dt }} — {{ os.approved_note }}</p>{% endif %}
+{% if doc.approved_at %}<p class="small">Orçamento autorizado em {{ doc.approved_at|dt }}.</p>{% endif %}
+<div class="keep">
 <h3>Garantia do serviço</h3>
-<p class="small">{{ os.warranty_days }} dias a partir da entrega{% if os.warranty_ends %} (até {{ os.warranty_ends|dt }}){% endif %}, cobrindo o serviço executado e as peças trocadas.
-Esta garantia não exclui os direitos do consumidor previstos no Código de Defesa do Consumidor. Não cobre danos por mau uso, quedas, líquidos ou violação por terceiros ocorridos após a entrega.</p>
-<p class="small">Aparelhos prontos e não retirados em até {{ settings.os_term_days }} dias poderão ser alvo de cobrança de taxa de armazenagem somente se prevista em contrato assinado pelo cliente. Apresente este documento para retirar o aparelho.</p>
-<table class="sign"><tr><td>______________________________<br>Assinatura do cliente</td><td>______________________________<br>{{ settings.store_name }}</td></tr></table>
+<p><b>Prazo: {{ doc.warranty.days }} dias</b>{% if doc.warranty.type_label %} ({{ doc.warranty.type_label }}){% endif %}.
+{% if doc.warranty.end %}Início em {{ doc.warranty.start|dt }}; término em <b>{{ doc.warranty.end|dt }}</b>.{% else %}Início na entrega do aparelho ao cliente; término {{ doc.warranty.days }} dias após a entrega.{% endif %}</p>
+</div>
+<div class="terms">
+{% for para in doc.warranty_terms.split('\n\n') %}{% if para.strip() %}<p class="{{ 't' if loop.first and para.strip() == para.strip().upper() else '' }}">{{ para.strip() }}</p>{% endif %}{% endfor %}
+{% if doc.service_conditions %}<p class="t">CONDIÇÕES DE ATENDIMENTO</p><p>{{ doc.service_conditions }}</p>{% endif %}
+</div>
+<table class="sign keep"><tr><td>______________________________<br>Assinatura do cliente</td><td>______________________________<br>Responsável técnico{% if doc.technician_name %}: {{ doc.technician_name }}{% endif %}</td></tr></table>
 <script src="/static/print.js"></script>
 </body></html>

@@ -15,7 +15,7 @@ from . import after_sales, backup, db, devices, finance, registry, reports, serv
 from .barcode import classify, normalize, variants
 from .services import ApiError
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 LOGIN_WINDOW, LOGIN_MAX = 300, 5
 
 
@@ -196,6 +196,25 @@ def create_app(testing=False):
             return {k: hide_cost(v, keys) for k, v in obj.items() if k not in keys}
         return obj
 
+    OS_COST_KEYS = {"unit_cost_cents", "parts_cost_cents", "parts_cost_missing", "other_cost_cents", "other_cost_note", "cost_cents",
+                    "cost_incomplete", "line_cost_cents", "supplier", "cost_updated_by", "cost_updated_at", "cancel_after_purchase"}
+    OS_PROFIT_KEYS = {"profit_cents", "profit_partial_cents"}
+
+    def os_view(obj):
+        """OS na tela interna: custo só com 'ver_custos' e lucro só com 'ver_lucros'. Filtrado no servidor, não só escondido na tela."""
+        hide = set()
+        if "ver_custos" not in g.perms:
+            hide |= OS_COST_KEYS
+        if "ver_lucros" not in g.perms:
+            hide |= OS_PROFIT_KEYS
+        if not hide:
+            return obj
+        if isinstance(obj, list):
+            return [os_view(x) for x in obj]
+        if isinstance(obj, dict):
+            return {k: os_view(v) for k, v in obj.items() if k not in hide}
+        return obj
+
     def hide_profit(obj):
         if "ver_lucros" in g.perms:
             return obj
@@ -313,7 +332,7 @@ def create_app(testing=False):
                      "must_change_password": bool(user["must_change_password"])},
             "permissions": sorted(perms),
             "settings": {k: st.get(k) for k in ("store_name", "scanner_suffix", "scanner_min_length", "max_installments", "auto_print_receipt",
-                                                  "default_warranty_days", "receipt_footer")},
+                                                  "default_warranty_days", "receipt_footer", "os_warranty_types", "os_print_default")},
             "payment_methods": sv.payment_methods(c),
             "cash_open": bool(cash), "cash_opened_at": cash["opened_at"] if cash else None,
             "version": APP_VERSION,
@@ -347,12 +366,33 @@ def create_app(testing=False):
     def get_settings():
         return jsonify({"settings": sv.get_settings(conn()), "card_fees": finance.get_card_fees(conn())})
 
+    def _clean_warranty_types(raw):
+        try:
+            items = json.loads(raw) if isinstance(raw, str) else raw
+        except ValueError:
+            raise ApiError("Lista de tipos de garantia inválida.")
+        if not isinstance(items, list) or not items or len(items) > 30:
+            raise ApiError("Cadastre de 1 a 30 tipos de garantia.")
+        out, seen = [], set()
+        for it in items:
+            label = (str((it or {}).get("label") or "")).strip()
+            if not label:
+                raise ApiError("Todo tipo de garantia precisa de um nome.")
+            key = str((it or {}).get("key") or "").strip() or "t" + secrets.token_hex(3)
+            if key in seen:
+                raise ApiError("Tipos de garantia repetidos.")
+            seen.add(key)
+            out.append({"key": key[:40], "label": label[:60], "days": sv.warranty_days((it or {}).get("days"))})
+        return json.dumps(out, ensure_ascii=False)
+
     @api("/api/settings", ["PUT"], perm="gerenciar_config")
     def put_settings():
         d = body()
         c = conn()
         allowed = {"store_name", "store_info", "receipt_footer", "scanner_suffix", "scanner_min_length", "max_installments",
-                   "auto_print_receipt", "default_acquirer", "os_term_days", "inactive_days", "default_warranty_days", "backup_keep"}
+                   "auto_print_receipt", "default_acquirer", "os_term_days", "inactive_days", "default_warranty_days", "backup_keep",
+                   "os_warranty_terms", "os_service_conditions", "os_warranty_types", "os_print_default", "os_thermal_width_mm",
+                   "os_print_itemized"}
         before = sv.get_settings(c)
         changes = {}
         for k, v in (d.get("settings") or {}).items():
@@ -365,6 +405,23 @@ def create_app(testing=False):
                 v = str(sv.to_int(v, k, minimum=1, maximum=999))
             if k == "default_warranty_days":
                 v = str(sv.warranty_days(v))
+            if k in ("os_warranty_terms", "os_service_conditions") and d["settings"][k] == "__padrao__":
+                from . import migrations as _mg
+                v = _mg.DEFAULT_WARRANTY_TERMS if k == "os_warranty_terms" else _mg.DEFAULT_SERVICE_CONDITIONS
+            elif k in ("os_warranty_terms", "os_service_conditions"):
+                v = "" if d["settings"][k] is None else str(d["settings"][k]).replace("\r\n", "\n").strip()
+                if k == "os_warranty_terms" and len(v) < 20:
+                    raise ApiError("O termo de garantia não pode ficar vazio.")
+                if len(v) > 4000:
+                    raise ApiError("O texto é longo demais (máximo de 4000 caracteres).")
+            if k == "os_print_default" and v not in ("termico", "a4"):
+                raise ApiError("Modelo de impressão da OS inválido.")
+            if k == "os_print_itemized" and v not in ("0", "1"):
+                raise ApiError("Opção inválida.")
+            if k == "os_thermal_width_mm":
+                v = str(sv.to_int(v, "Largura útil da bobina", minimum=40, maximum=80))
+            if k == "os_warranty_types":
+                v = _clean_warranty_types(d["settings"][k])
             if before.get(k) != v:
                 c.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, v))
                 changes[k] = {"antes": before.get(k), "depois": v}
@@ -656,7 +713,7 @@ def create_app(testing=False):
     @api("/api/os", perm="gerenciar_os")
     def os_list():
         a = request.args
-        return jsonify(hide_cost(so.search(conn(), a.get("q", ""), a.get("status") or None, a.get("technician_id") or None,
+        return jsonify(os_view(so.search(conn(), a.get("q", ""), a.get("status") or None, a.get("technician_id") or None,
                                            a.get("open") == "1", a.get("unclaimed") == "1")))
 
     @api("/api/os", ["POST"], perm="gerenciar_os")
@@ -666,41 +723,63 @@ def create_app(testing=False):
 
     @api("/api/os/<int:oid>", perm="gerenciar_os")
     def os_get(oid):
-        return jsonify(hide_cost(so.detail(conn(), oid)))
+        return jsonify(os_view(so.detail(conn(), oid)))
 
     @api("/api/os/<int:oid>", ["PUT"], perm="gerenciar_os")
     def os_update(oid):
         d = body()
         so.update_order(conn(), g.user, g.perms, oid, d, d.get("authorization"))
-        return jsonify(hide_cost(so.detail(conn(), oid)))
+        return jsonify(os_view(so.detail(conn(), oid)))
 
     @api("/api/os/<int:oid>/parts", ["POST"], perm="gerenciar_os")
     def os_add_part(oid):
         d = body()
         so.add_part(conn(), g.user, g.perms, oid, d.get("product_id"), d.get("qty", 1), d.get("price_cents"))
-        return jsonify(hide_cost(so.detail(conn(), oid)))
+        return jsonify(os_view(so.detail(conn(), oid)))
 
     @api("/api/os/<int:oid>/parts/<int:part_id>", ["DELETE"], perm="gerenciar_os")
     def os_del_part(oid, part_id):
         so.remove_part(conn(), g.user, g.perms, oid, part_id)
-        return jsonify(hide_cost(so.detail(conn(), oid)))
+        return jsonify(os_view(so.detail(conn(), oid)))
+
+    @api("/api/os/<int:oid>/loose-parts", ["POST"], perm="gerenciar_os")
+    def os_add_loose_part(oid):
+        so.add_loose_part(conn(), g.user, g.perms, oid, body())
+        return jsonify(os_view(so.detail(conn(), oid))), 201
+
+    @api("/api/os/<int:oid>/parts/<int:part_id>", ["PUT"], perm="gerenciar_os")
+    def os_edit_part(oid, part_id):
+        so.update_loose_part(conn(), g.user, g.perms, oid, part_id, body())
+        return jsonify(os_view(so.detail(conn(), oid)))
+
+    @api("/api/os/<int:oid>/parts/<int:part_id>/status", ["POST"], perm="gerenciar_os")
+    def os_part_status(oid, part_id):
+        d = body()
+        so.set_part_status(conn(), g.user, g.perms, oid, part_id, d.get("status"), d.get("note"))
+        return jsonify(os_view(so.detail(conn(), oid)))
+
+    @api("/api/os/<int:oid>/parts/<int:part_id>/cancel", ["POST"], perm="gerenciar_os")
+    def os_cancel_part(oid, part_id):
+        d = body()
+        so.cancel_part(conn(), g.user, g.perms, oid, part_id, d.get("reason"), d.get("authorization"))
+        return jsonify(os_view(so.detail(conn(), oid)))
 
     @api("/api/os/<int:oid>/approval", ["POST"], perm="gerenciar_os")
     def os_approval(oid):
         d = body()
         so.approve(conn(), g.user, g.perms, oid, bool(d.get("approved", True)), d.get("note"))
-        return jsonify(hide_cost(so.detail(conn(), oid)))
+        return jsonify(os_view(so.detail(conn(), oid)))
 
     @api("/api/os/<int:oid>/status", ["POST"], perm="gerenciar_os")
     def os_status(oid):
         d = body()
         so.set_status(conn(), g.user, g.perms, oid, d.get("status"), d.get("note"), bool(d.get("allow_pending")), d.get("authorization"))
-        return jsonify(hide_cost(so.detail(conn(), oid)))
+        return jsonify(os_view(so.detail(conn(), oid)))
 
     @api("/api/os/<int:oid>/payments", ["POST"], perm="gerenciar_os")
     def os_pay(oid):
         so.add_payment(conn(), g.user, g.perms, oid, body().get("payments"))
-        return jsonify(hide_cost(so.detail(conn(), oid)))
+        return jsonify(os_view(so.detail(conn(), oid)))
 
     # ------------------------------------------------------------ clientes e fornecedores
     @api("/api/customers", perm="ver_clientes")
@@ -991,12 +1070,40 @@ def create_app(testing=False):
 
     @app.route("/print/os/<int:oid>")
     def print_os(oid):
+        """Via do CLIENTE da OS. Usa `customer_document` (lista branca): não existe caminho para custo ou lucro chegar aqui."""
         deny = _printer_guard()
         if deny:
             return deny
         if "gerenciar_os" not in g.perms:
             abort(403)
-        return render_template("os.html", os=so.detail(conn(), oid), STATUS=so.STATUS, **_tpl_ctx())
+        c = conn()
+        doc = so.customer_document(c, oid)
+        cfg = sv.get_settings(c)
+        fmt = request.args.get("formato") or cfg.get("os_print_default") or "termico"
+        try:
+            width = int(request.args.get("largura") or cfg.get("os_thermal_width_mm") or 72)
+        except ValueError:
+            width = 72
+        width = max(40, min(width, 80))
+        paper = 58 if width <= 52 else 80
+        ctx = dict(_tpl_ctx(), doc=doc, width_mm=width, paper_mm=paper)
+        return render_template("os.html" if fmt == "a4" else "os_termico.html", **ctx)
+
+    @app.route("/print/teste-termica")
+    def print_thermal_test():
+        """Página de teste da impressora térmica: régua de largura, textos e quebra de linha, sem dados de clientes."""
+        deny = _printer_guard()
+        if deny:
+            return deny
+        if "gerenciar_os" not in g.perms:
+            abort(403)
+        cfg = sv.get_settings(conn())
+        try:
+            width = int(request.args.get("largura") or cfg.get("os_thermal_width_mm") or 72)
+        except ValueError:
+            width = 72
+        width = max(40, min(width, 80))
+        return render_template("termica_teste.html", width_mm=width, paper_mm=(58 if width <= 52 else 80), **_tpl_ctx())
 
     # backup automático diário (na abertura e a cada 6 horas)
     if not testing:

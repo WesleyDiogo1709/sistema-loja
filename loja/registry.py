@@ -57,7 +57,7 @@ def customer_history(conn, cid):
         "SELECT id, created_at, total_cents, status FROM sales WHERE customer_id=? ORDER BY id DESC LIMIT 200", (cid,))]
     orders = [dict(r) for r in conn.execute(
         "SELECT o.id, o.entry_at, o.brand, o.model, o.status,"
-        " (SELECT COALESCE(SUM(unit_price_cents*qty),0) FROM service_order_parts p WHERE p.order_id=o.id AND p.removed_at IS NULL)"
+        " (SELECT COALESCE(SUM(unit_price_cents*qty),0) FROM service_order_parts p WHERE p.order_id=o.id AND p.removed_at IS NULL AND (p.part_status IS NULL OR p.part_status<>'cancelada'))"
         "  + o.labor_cents - o.discount_cents AS total_cents,"
         " (SELECT COALESCE(SUM(amount_cents),0) FROM service_payments s WHERE s.order_id=o.id AND s.voided_at IS NULL) AS paid_cents"
         " FROM service_orders o WHERE o.customer_id=? ORDER BY o.id DESC LIMIT 200", (cid,))]

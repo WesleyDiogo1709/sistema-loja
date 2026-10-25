@@ -6,7 +6,8 @@ import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_BASE = 1      # esquema de loja/schema.sql
+SCHEMA_VERSION = 2   # versão mais recente (ver loja/migrations.py)
 
 
 def data_dir():
@@ -60,8 +61,11 @@ def _schema_sql():
     return (Path(__file__).resolve().parent / "schema.sql").read_text(encoding="utf-8")
 
 
-# Migrações futuras: {versao_destino: "SQL"}. A versão 1 é o esquema inicial.
-MIGRATIONS = {}
+# Migrações: {versao_destino: funcao(conn)}. A versão 1 é o esquema inicial (schema.sql); as demais ficam em migrations.py.
+# Bancos que já têm dados são migrados na inicialização, depois de uma cópia de segurança automática.
+def _migrations():
+    from . import migrations
+    return migrations.MIGRATIONS
 
 
 def init_db():
@@ -70,24 +74,31 @@ def init_db():
     conn = connect()
     try:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
+        fresh = False
         if version == 0:
-            has_tables = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'"
-            ).fetchone()
+            has_tables = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").fetchone()
             if not has_tables:
                 with tx(conn):
                     for stmt in _split_sql(_schema_sql()):
                         conn.execute(stmt)
                     services.seed_defaults(conn)
-            conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-            version = SCHEMA_VERSION
-        for target in sorted(MIGRATIONS):
-            if target > version:
-                with tx(conn):
-                    for stmt in _split_sql(MIGRATIONS[target]):
-                        conn.execute(stmt)
-                conn.execute(f"PRAGMA user_version={target}")
-                version = target
+                fresh = True
+            conn.execute(f"PRAGMA user_version={SCHEMA_BASE}")
+            version = SCHEMA_BASE
+        migrations = _migrations()
+        pending = [t for t in sorted(migrations) if t > version]
+        if pending and not fresh:
+            try:  # banco com dados: cópia de segurança antes de migrar
+                from . import backup
+                backup.make_backup("pre-migracao")
+            except Exception:  # noqa: BLE001 - não impede a migração; o erro fica no log
+                import logging
+                logging.getLogger(__name__).exception("Não foi possível criar o backup antes da migração")
+        for target in pending:
+            with tx(conn):
+                migrations[target](conn)
+            conn.execute(f"PRAGMA user_version={target}")
+            version = target
     finally:
         conn.close()
 

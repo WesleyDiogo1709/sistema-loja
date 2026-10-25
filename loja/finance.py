@@ -233,11 +233,12 @@ def summary(conn, date_from, date_to):
                f" WHERE s.status='concluida' AND {_rng('s.created_at', a, b)}")["c"]
     ret = one(f"SELECT COALESCE(SUM(ri.amount_cents),0) amount, COALESCE(SUM(CASE WHEN ri.restock=1 THEN ri.cost_cents ELSE 0 END),0) restock_cost"
               f" FROM return_items ri JOIN returns r ON r.id=ri.return_id WHERE {_rng('r.created_at', a, b)}")
-    svc_total = svc_cost = svc_count = 0
+    svc_total = svc_cost = svc_count = svc_incomplete = 0
     for r in conn.execute(f"SELECT id FROM service_orders WHERE status='entregue' AND {_rng('delivered_at', a, b)}"):
         t = so.totals(conn, so.order_row(conn, r["id"]))
         svc_total += t["total_cents"]
-        svc_cost += t["parts_cost_cents"]
+        svc_cost += t["cost_cents"]
+        svc_incomplete += 1 if t["cost_incomplete"] else 0
         svc_count += 1
     fees = one(f"SELECT COALESCE(SUM(p.fee_cents),0) f FROM sale_payments p JOIN sales s ON s.id=p.sale_id"
                f" WHERE s.status='concluida' AND {_rng('s.created_at', a, b)}")["f"]
@@ -260,7 +261,7 @@ def summary(conn, date_from, date_to):
         "from": a, "to": b,
         "sales_count": sales["n"], "sales_total_cents": sales["total"], "discounts_cents": sales["disc"],
         "returns_cents": ret["amount"],
-        "services_count": svc_count, "services_total_cents": svc_total,
+        "services_count": svc_count, "services_total_cents": svc_total, "services_cost_incomplete": svc_incomplete,
         "revenue_cents": faturamento,
         "received_cents": received, "received_by_method": by_method,
         "cost_cents": custo, "gross_profit_cents": lucro_bruto,

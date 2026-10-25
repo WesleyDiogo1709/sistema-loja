@@ -23,11 +23,13 @@
 - Toda rota nova usa o decorador `api(...)` (autenticação, permissão, CSRF, transação). Permissão é checada no servidor; o front só esconde botões.
 - Em produção: cookie Secure, HTTPS obrigatório, validação de origem. Não relaxar.
 - Service worker nunca deve guardar respostas (`cache.put`/`caches.open` são proibidos; há teste).
+- OS: a via do cliente só usa `customer_document` (lista branca em `service_orders.py`); nunca passar custo/lucro/fornecedor/observações internas a `os.html`/`os_termico.html`. Respostas `/api/os*` passam por `os_view` (custo só com `ver_custos`, lucro só com `ver_lucros`). Peça avulsa (`kind='avulsa'`) nunca mexe no estoque. Custo ausente = lucro incompleto, nunca zero.
 - Operação de venda/estoque/caixa só vale após confirmação do servidor. Não criar fila offline nem otimismo no front.
 
 ## Alterações futuras
-1. Escreva/ajuste o teste (`tests/`), rode a suíte inteira (77 testes originais + `test_production.py`).
-2. Mudou o esquema? Acrescente em `MIGRATIONS` (`loja/db.py`), aumente `SCHEMA_VERSION`; nunca apague dados.
+1. Escreva/ajuste o teste (`tests/`), rode a suíte inteira (120 testes, incl. `test_production.py` e `test_os_melhorias.py`).
+2. Mudou o esquema? Acrescente em `MIGRATIONS` (`loja/migrations.py`), aumente `SCHEMA_VERSION` (`loja/db.py`; atual: 2); nunca apague dados.
 3. Mudou o front? Teste em desktop e celular (largura 390 px, sem rolagem horizontal).
 4. Atualize `APP_VERSION` em `loja/app.py` e os documentos afetados.
 5. `git push` na `main` publica (autoDeploy no Render). Faça um backup antes de mudanças no banco.
+- Impressão térmica: o Chromium não aceita `@page size: 80mm auto`; `static/print.js` define a altura. Documentação em `docs/ORDEM_DE_SERVICO.md`.
