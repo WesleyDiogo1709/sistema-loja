@@ -19,22 +19,15 @@
 {% if doc.accessories %}<h3>Acessórios recebidos</h3><p class="pre">{{ doc.accessories }}</p>{% endif %}
 {% if doc.diagnosis %}<h3>Diagnóstico técnico</h3><p class="pre">{{ doc.diagnosis }}</p>{% endif %}
 {% if doc.services_done %}<h3>Serviços previstos / realizados</h3><p class="pre">{{ doc.services_done }}</p>{% endif %}
-<h3>Valores</h3>
-<table class="items">
-  <thead><tr><th class="l">Descrição</th><th>Qtd</th><th class="r">Valor</th></tr></thead>
-  <tbody>
-  {% for l in doc.lines %}<tr><td class="l">{{ l.description }}</td><td>{{ l.qty or '' }}</td><td class="r">{% if l.total_cents or not l.qty %}{{ l.total_cents|brl }}{% else %}incluso{% endif %}</td></tr>{% endfor %}
-  {% if doc.discount_cents %}<tr><td class="l">Desconto</td><td></td><td class="r">-{{ doc.discount_cents|brl }}</td></tr>{% endif %}
-  <tr class="big"><td class="l">TOTAL</td><td></td><td class="r">{{ doc.total_cents|brl }}</td></tr>
-  <tr><td class="l">Já pago</td><td></td><td class="r">{{ doc.paid_cents|brl }}</td></tr>
-  <tr><td class="l"><b>Saldo</b></td><td></td><td class="r"><b>{{ doc.balance_cents|brl }}</b></td></tr>
-  </tbody>
-</table>
+<h3>Valor do serviço</h3>
+<table class="items"><tbody>
+  <tr class="big"><td class="l">TOTAL</td><td class="r">{{ doc.total_cents|brl }}</td></tr>
+</tbody></table>
 {% if doc.approved_at %}<p class="small">Orçamento autorizado em {{ doc.approved_at|dt }}.</p>{% endif %}
 <div class="keep">
 <h3>Garantia do serviço</h3>
 <p><b>Prazo: {{ doc.warranty.days }} dias</b>{% if doc.warranty.type_label %} ({{ doc.warranty.type_label }}){% endif %}.
-{% if doc.warranty.end %}Início em {{ doc.warranty.start|dt }}; término em <b>{{ doc.warranty.end|dt }}</b>.{% else %}Início na entrega do aparelho ao cliente; término {{ doc.warranty.days }} dias após a entrega.{% endif %}</p>
+{% if doc.warranty.end %}Início em {{ doc.warranty.start|dt }}; término em <b>{{ doc.warranty.end|dt }}</b>.{% else %}Início quando o serviço for confirmado e o aparelho ficar pronto; término {{ doc.warranty.days }} dias após a entrega.{% endif %}</p>
 </div>
 <div class="terms">
 {% for para in doc.warranty_terms.split('\n\n') %}{% if para.strip() %}<p class="{{ 't' if loop.first and para.strip() == para.strip().upper() else '' }}">{{ para.strip() }}</p>{% endif %}{% endfor %}

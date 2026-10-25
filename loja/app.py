@@ -15,7 +15,7 @@ from . import after_sales, backup, db, devices, finance, registry, reports, serv
 from .barcode import classify, normalize, variants
 from .services import ApiError
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 LOGIN_WINDOW, LOGIN_MAX = 300, 5
 
 
@@ -391,8 +391,7 @@ def create_app(testing=False):
         c = conn()
         allowed = {"store_name", "store_info", "receipt_footer", "scanner_suffix", "scanner_min_length", "max_installments",
                    "auto_print_receipt", "default_acquirer", "os_term_days", "inactive_days", "default_warranty_days", "backup_keep",
-                   "os_warranty_terms", "os_service_conditions", "os_warranty_types", "os_print_default", "os_thermal_width_mm",
-                   "os_print_itemized"}
+                   "os_warranty_terms", "os_service_conditions", "os_warranty_types", "os_print_default", "os_thermal_width_mm"}
         before = sv.get_settings(c)
         changes = {}
         for k, v in (d.get("settings") or {}).items():
@@ -416,8 +415,6 @@ def create_app(testing=False):
                     raise ApiError("O texto é longo demais (máximo de 4000 caracteres).")
             if k == "os_print_default" and v not in ("termico", "a4"):
                 raise ApiError("Modelo de impressão da OS inválido.")
-            if k == "os_print_itemized" and v not in ("0", "1"):
-                raise ApiError("Opção inválida.")
             if k == "os_thermal_width_mm":
                 v = str(sv.to_int(v, "Largura útil da bobina", minimum=40, maximum=80))
             if k == "os_warranty_types":

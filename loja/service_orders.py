@@ -487,13 +487,16 @@ def set_status(conn, user, perms, oid, status, note=None, allow_pending=False, a
         sets.append("warranty_terms=?")   # guarda o texto vigente: editar o termo depois não altera OS já finalizadas
         vals.append(terms)
     if status == "pronto_retirada":
-        sets.append("completed_at=?")
-        vals.append(now())
-    if status == "entregue":
+        sets += ["completed_at=?", "warranty_start=?", "warranty_end=?"]   # a garantia começa quando o serviço está confirmado e o aparelho pronto
+        vals += [now(), now()[:10], add_days(now(), o["warranty_days"])]
+    elif status == "entregue":
         sets.append("delivered_at=?")
         vals.append(now())
-        sets += ["warranty_start=?", "warranty_end=?"]
-        vals += [now()[:10], add_days(now(), o["warranty_days"])]
+        if not o["warranty_start"]:   # entrega direta, sem passar por "pronto": começa agora
+            sets += ["warranty_start=?", "warranty_end=?", "completed_at=COALESCE(completed_at, ?)"]
+            vals += [now()[:10], add_days(now(), o["warranty_days"]), now()]
+    elif o["warranty_start"] and not o["delivered_at"]:
+        sets += ["warranty_start=NULL", "warranty_end=NULL", "completed_at=NULL"]   # voltou para reparo: a garantia só vale quando ficar pronto de novo
     conn.execute(f"UPDATE service_orders SET {', '.join(sets)} WHERE id=?", vals + [oid])
     log_event(conn, oid, status, user["id"], note)
     audit(conn, user["id"], "os_situacao", "service_order", oid, before={"status": o["status"]},
@@ -544,7 +547,10 @@ def detail(conn, oid):
         "SELECT e.*, u.name AS user_name FROM service_order_events e LEFT JOIN users u ON u.id=e.user_id WHERE order_id=? ORDER BY e.id DESC", (oid,))]
     t = conn.execute("SELECT name FROM users WHERE id=?", (o["technician_id"],)).fetchone() if o["technician_id"] else None
     o["technician_name"] = t["name"] if t else None
-    o["warranty_ends"] = o["warranty_end"] or (add_days(o["delivered_at"], o["warranty_days"]) if o["delivered_at"] else None)
+    base = o["warranty_start"] or o["completed_at"] or o["delivered_at"]
+    if base and not o["warranty_start"]:
+        o["warranty_start"] = base[:10]
+    o["warranty_ends"] = o["warranty_end"] or (add_days(base, o["warranty_days"]) if base else None)
     o["warranty_type_label"] = next((t["label"] for t in warranty_types(conn) if t["key"] == o["warranty_type"]), None)
     keys = [k for k in (o["imei"], o["serial"]) if k]
     o["history"] = []
@@ -562,18 +568,6 @@ def customer_document(conn, oid):
     Custos, lucro, fornecedores, observações internas e situação de compra das peças nunca passam por esta função."""
     d = detail(conn, oid)
     cfg = get_settings(conn)
-    itemized = cfg.get("os_print_itemized", "1") == "1"
-    lines, parts_total = [], 0
-    for p in d["parts"]:
-        if p["cancelled"]:
-            continue
-        total = p["unit_price_cents"] * p["qty"]
-        parts_total += total
-        desc = p["name"] + (f" ({p['compat']})" if p.get("compat") else "")
-        lines.append({"description": desc, "qty": p["qty"], "unit_cents": p["unit_price_cents"], "total_cents": total})
-    if not itemized:
-        lines = [{"description": "Peças", "qty": None, "unit_cents": None, "total_cents": parts_total}] if parts_total else []
-    lines.append({"description": "Mão de obra", "qty": None, "unit_cents": None, "total_cents": d["labor_cents"]})
     start, end = d["warranty_start"], d["warranty_ends"]
     return {
         "id": d["id"], "status_label": d["status_label"],
@@ -583,8 +577,8 @@ def customer_document(conn, oid):
         "brand": d["brand"], "model": d["model"], "imei": d["imei"], "serial": d["serial"],
         "defect": d["defect"], "physical_state": d["physical_state"], "accessories": d["accessories"],
         "diagnosis": d["diagnosis"], "services_done": d["services_done"], "technician_name": d["technician_name"],
-        "lines": lines, "itemized": itemized, "discount_cents": d["discount_cents"], "total_cents": d["total_cents"],
-        "paid_cents": d["paid_cents"], "balance_cents": d["balance_cents"], "approved_at": d["approved_at"] if d["approved"] else None,
+        "total_cents": d["total_cents"],  # valor único cobrado do cliente: sem discriminar peças, mão de obra ou desconto
+        "approved_at": d["approved_at"] if d["approved"] else None,
         "warranty": {"days": d["warranty_days"], "type_label": d["warranty_type_label"], "start": start, "end": end},
         "warranty_terms": d["warranty_terms"] or cfg.get("os_warranty_terms") or "",
         "service_conditions": cfg.get("os_service_conditions") or "",

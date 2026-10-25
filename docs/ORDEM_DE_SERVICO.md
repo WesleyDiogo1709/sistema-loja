@@ -41,13 +41,15 @@ O sistema imprime pelo navegador (Chrome ou Edge). **Não há impressão direta 
 
 Cálculos: custo total = custo das peças + outros custos; total cobrado = peças cobradas + mão de obra − desconto; lucro bruto = total cobrado − custo total.
 
+**Valores na via do cliente**: aparece somente o valor único cobrado (total), sem discriminar peças, mão de obra, desconto ou pagamentos.
+
 **Via do cliente**: montada por lista de permissão no servidor (`customer_document`). Não existe caminho de custo, lucro, fornecedor, observações internas ou situação de compra até o papel. Telas e APIs internas escondem custo/lucro de quem não tem "Ver custos"/"Ver lucros" (filtro no servidor).
 
 ## 4. Termo de garantia
 - *Configurações → Ordem de serviço e garantia* (somente quem tem "Gerenciar configurações", o administrador por padrão).
 - Edite o texto do termo e as condições de atendimento; separe parágrafos com linha em branco; a primeira linha é o título. **Restaurar texto padrão** volta ao termo original.
 - Prazos por tipo de serviço/peça: tabela editável (mínimo de 90 dias). Confirme os prazos adequados a cada serviço antes de usar; o sistema não impõe um prazo único.
-- A OS grava o tipo/prazo, a data inicial e final (na entrega) e uma cópia do texto vigente quando fica pronta; mudar o termo depois não altera OS já emitidas (histórico).
+- A OS grava o tipo/prazo, a data inicial e final (a garantia começa quando o serviço está confirmado e o aparelho fica "pronto para retirada"; se a OS voltar para reparo, as datas são zeradas) e uma cópia do texto vigente quando fica pronta; mudar o termo depois não altera OS já emitidas (histórico).
 - Revise o texto com sua assessoria jurídica; o modelo não é parecer jurídico.
 
 ## 5. Migração

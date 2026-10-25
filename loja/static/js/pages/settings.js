@@ -34,20 +34,19 @@ export default async function ({ el }) {
     const { settings: s } = await api.get('/api/settings');
     let types = []; try { types = JSON.parse(s.os_warranty_types || '[]'); } catch { types = []; }
     const f = { terms: h('textarea', { rows: 14, style: { width: '100%' } }, s.os_warranty_terms || ''), cond: h('textarea', { rows: 6, style: { width: '100%' } }, s.os_service_conditions || ''),
-      fmt: select([['termico', 'Térmica 80 mm (Epson TM-T20)'], ['a4', 'Folha A4']], s.os_print_default || 'termico'), width: h('input', { type: 'number', min: 40, max: 80, value: s.os_thermal_width_mm || 72 }),
-      item: h('input', { type: 'checkbox', checked: s.os_print_itemized !== '0' }) };
+      fmt: select([['termico', 'Térmica 80 mm (Epson TM-T20)'], ['a4', 'Folha A4']], s.os_print_default || 'termico'), width: h('input', { type: 'number', min: 40, max: 80, value: s.os_thermal_width_mm || 72 }) };
     const rows = h('div'); const list = types.map((t) => ({ ...t }));
     const drawTypes = () => { clear(rows); list.forEach((t, idx) => { const name = h('input', { value: t.label, maxlength: 60, oninput: () => { t.label = name.value; } }); const days = h('input', { type: 'number', min: 90, value: t.days, style: { width: '90px' }, oninput: () => { t.days = +days.value; } });
       rows.append(h('div', { class: 'row', style: { gap: '8px', marginBottom: '6px', alignItems: 'center' } }, name, days, h('span', { class: 'muted' }, 'dias'), h('button', { class: 'btn small', onclick: () => { if (list.length > 1) { list.splice(idx, 1); drawTypes(); } } }, 'Remover'))); }); };
     drawTypes();
-    const save = async (extra = {}) => { await api.put('/api/settings', { settings: { os_warranty_terms: f.terms.value, os_service_conditions: f.cond.value, os_warranty_types: JSON.stringify(list), os_print_default: f.fmt.value, os_thermal_width_mm: f.width.value, os_print_itemized: f.item.checked ? '1' : '0', ...extra } }); await refreshMe(); toast('Configurações da OS salvas.', 'good'); };
+    const save = async (extra = {}) => { await api.put('/api/settings', { settings: { os_warranty_terms: f.terms.value, os_service_conditions: f.cond.value, os_warranty_types: JSON.stringify(list), os_print_default: f.fmt.value, os_thermal_width_mm: f.width.value, ...extra } }); await refreshMe(); toast('Configurações da OS salvas.', 'good'); };
     box.append(h('div', { class: 'card', style: { maxWidth: '860px' } },
       h('h3', {}, 'Termo de garantia (impresso ao final da OS)'), f.terms, h('div', { class: 'muted' }, 'Separe os parágrafos com uma linha em branco. A primeira linha é o título. A OS guarda uma cópia do texto vigente quando fica pronta, então mudar o termo aqui não altera OS já emitidas.'),
       h('div', { class: 'row', style: { margin: '8px 0 16px' } }, h('button', { class: 'btn', onclick: async () => { if (await confirmBox('Restaurar o termo original? O texto atual será substituído pelo padrão.', { okLabel: 'Restaurar' })) { await save({ os_warranty_terms: '__padrao__' }); draw(); } } }, 'Restaurar texto padrão')),
       h('h3', {}, 'Condições de atendimento'), f.cond,
       h('h3', { style: { marginTop: '16px' } }, 'Prazos de garantia por tipo de serviço ou peça'), h('div', { class: 'muted' }, 'O prazo (mínimo de 90 dias) e a data final aparecem na OS impressa. Confirme os prazos adequados a cada serviço antes de usar.'), rows,
       h('button', { class: 'btn', onclick: () => { list.push({ key: '', label: 'Novo tipo', days: 90 }); drawTypes(); } }, '+ Tipo de garantia'),
-      h('h3', { style: { marginTop: '16px' } }, 'Impressão'), h('div', { class: 'fields' }, field('Modelo padrão ao imprimir a OS', f.fmt), field('Largura útil da bobina (mm)', f.width), h('label', { class: 'check wide' }, f.item, 'Detalhar peças e mão de obra na via do cliente')),
+      h('h3', { style: { marginTop: '16px' } }, 'Impressão'), h('div', { class: 'fields' }, field('Modelo padrão ao imprimir a OS', f.fmt), field('Largura útil da bobina (mm)', f.width)),
       h('div', { class: 'row', style: { marginTop: '14px' } }, h('button', { class: 'btn primary', onclick: () => save() }, 'Salvar'), h('a', { class: 'btn', href: '/print/teste-termica', target: '_blank' }, 'Imprimir página de teste da térmica'))));
   }
 

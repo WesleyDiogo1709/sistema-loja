@@ -38,7 +38,6 @@ NEW_SETTINGS = {
     "os_warranty_types": json.dumps(DEFAULT_WARRANTY_TYPES, ensure_ascii=False),
     "os_print_default": "termico",      # termico | a4
     "os_thermal_width_mm": "72",        # largura útil da bobina de 80 mm na Epson TM-T20 (ajustável)
-    "os_print_itemized": "1",           # 1 = discrimina peças e mão de obra para o cliente
 }
 
 

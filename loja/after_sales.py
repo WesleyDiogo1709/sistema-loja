@@ -135,7 +135,7 @@ def warranty_lookup(conn, q):
             " ORDER BY id DESC LIMIT 100", (int(digits) if digits.isdigit() else -1, q, q, like, like)):
         ends = (o["warranty_end"] or "")[:10] or add_days(o["delivered_at"], o["warranty_days"])
         out.append({"type": "servico", "order_id": o["id"], "description": f"Serviço em {o['brand']} {o['model']}: {o['defect']}",
-                    "customer_name": o["customer_name"], "customer_phone": o["customer_phone"], "start": o["delivered_at"][:10],
+                    "customer_name": o["customer_name"], "customer_phone": o["customer_phone"], "start": (o["warranty_start"] or o["delivered_at"])[:10],
                     "ends": ends, "in_warranty": ends >= today, "ref": f"OS {o['id']}"})
     return out
 

@@ -208,7 +208,9 @@ class CustomerPrintTests(OsBase):
                 self.assertNotIn(bad, html, (q, bad))
             self.assertIn("TERMO DE GARANTIA DO SERVIÇO", html)
             self.assertIn("Maria das Graças", html)
-            self.assertIn("Tela OLED A54", html)
+            self.assertIn("330,00", html)  # só o valor único cobrado (250 + 80)
+            for bad in ("Tela OLED A54", "250,00", "80,00", "Mão de obra", "Desconto", "Saldo"):
+                self.assertNotIn(bad, html, (q, bad))
 
     def test_customer_document_has_no_cost_keys(self):
         from loja import db, service_orders as so
@@ -294,9 +296,17 @@ class WarrantyTests(OsBase):
         o = self.admin.ok(self.admin.get(f"/api/os/{oid}"))
         self.assertEqual((o["warranty_type"], o["warranty_days"]), ("tela", 120))
         self.approve(oid)
-        for st in ("em_reparo", "em_testes", "pronto_retirada", "entregue"):
-            o = self.admin.ok(self.admin.post(f"/api/os/{oid}/status", {"status": st, "allow_pending": True}))
+        for st in ("em_reparo", "em_testes"):
+            o = self.admin.ok(self.admin.post(f"/api/os/{oid}/status", {"status": st}))
+        self.assertIsNone(o["warranty_start"])  # ainda não ficou pronto: garantia não começou
+        o = self.admin.ok(self.admin.post(f"/api/os/{oid}/status", {"status": "pronto_retirada"}))
         hoje = datetime.now().date()
+        self.assertEqual(o["warranty_start"][:10], hoje.isoformat())  # começa quando fica pronto
+        self.admin.ok(self.admin.post(f"/api/os/{oid}/status", {"status": "em_reparo"}))  # voltou para reparo
+        self.assertIsNone(self.admin.ok(self.admin.get(f"/api/os/{oid}"))["warranty_start"])
+        self.admin.ok(self.admin.post(f"/api/os/{oid}/status", {"status": "em_testes"}))
+        self.admin.ok(self.admin.post(f"/api/os/{oid}/status", {"status": "pronto_retirada"}))
+        o = self.admin.ok(self.admin.post(f"/api/os/{oid}/status", {"status": "entregue", "allow_pending": True}))
         self.assertEqual(o["warranty_start"][:10], hoje.isoformat())
         self.assertEqual(o["warranty_end"][:10], (hoje + timedelta(days=120)).isoformat())
         html = self.admin.c.get(f"/print/os/{oid}").get_data(as_text=True)

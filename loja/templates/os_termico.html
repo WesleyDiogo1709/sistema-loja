@@ -75,23 +75,8 @@
   {% if doc.diagnosis %}<h2>Diagnóstico</h2><p class="pre">{{ doc.diagnosis }}</p>{% endif %}
   {% if doc.services_done %}<h2>Serviços previstos / realizados</h2><p class="pre">{{ doc.services_done }}</p>{% endif %}
 
-  <h2>Valores</h2>
-  {% for l in doc.lines %}
-  <div class="item">
-    <div>{{ l.description }}</div>
-    {% if l.qty %}
-      <div class="row sub"><span>{{ l.qty }} x {{ l.unit_cents|brl }}</span><span>{% if l.total_cents %}{{ l.total_cents|brl }}{% else %}incluso{% endif %}</span></div>
-    {% else %}
-      <div class="sub">{{ l.total_cents|brl }}</div>
-    {% endif %}
-  </div>
-  {% endfor %}
-  {% if doc.discount_cents %}<div class="row"><span>Desconto</span><span>- {{ doc.discount_cents|brl }}</span></div>{% endif %}
+  <h2>Valor do serviço</h2>
   <div class="row total"><span>TOTAL</span><span>{{ doc.total_cents|brl }}</span></div>
-  {% if doc.paid_cents %}
-    <div class="row"><span>Já pago</span><span>{{ doc.paid_cents|brl }}</span></div>
-    <div class="row"><span><b>Saldo a pagar</b></span><span><b>{{ doc.balance_cents|brl }}</b></span></div>
-  {% endif %}
   {% if doc.approved_at %}<p style="margin-top:1.5mm;font-size:11px">Orçamento autorizado em {{ doc.approved_at|dt }}.</p>{% endif %}
 
   <h2>Garantia do serviço</h2>
@@ -100,7 +85,7 @@
     {% if doc.warranty.end %}
       <p class="field">Início: {{ doc.warranty.start|dt }}<br>Término: <b>{{ doc.warranty.end|dt }}</b></p>
     {% else %}
-      <p class="field">Início: na entrega do aparelho ao cliente.<br>Término: {{ doc.warranty.days }} dias após a entrega (data registrada na retirada).</p>
+      <p class="field">Início: quando o serviço for confirmado e o aparelho ficar pronto.<br>Término: {{ doc.warranty.days }} dias depois (as datas são registradas quando o aparelho ficar pronto).</p>
     {% endif %}
   </div>
 
